@@ -5,6 +5,10 @@ Phần còn thiếu chủ yếu do **chưa có nguồn dữ liệu**, không ph�
 SSI iBoard (danh sách mã, giá ngày, giá tham chiếu/trần/sàn) và Vietcap (giá dự phòng, hồ sơ công ty, BCTC).
 Các API công khai này không có hợp đồng, có thể đổi hoặc chặn bất cứ lúc nào (rủi ro "Bản quyền dữ liệu" trong kế hoạch, mục 9).
 
+> **Cập nhật:** nhiều mục dưới đây đã tìm được nguồn miễn phí gọi thử được — giao dịch nội bộ (#4), sự kiện quyền (#3),
+> khối ngoại và tự doanh (#2), khuyến nghị CTCK (#9 một phần), tin tức qua RSS (#6), tỷ giá và vĩ mô năm (#7 một phần).
+> Xem [`NGUON-DU-LIEU.md`](NGUON-DU-LIEU.md). Vẫn cần mua: giá realtime (#1), vĩ mô hằng tháng và hàng hoá (#7), ETF (#8), dự phóng lợi nhuận (#9).
+
 ## 1. Dữ liệu thị trường (cần mua để đạt đủ tài liệu)
 
 | # | Dữ liệu cần | Mở khoá yêu cầu | Hiện trạng | Nhà cung cấp gợi ý (cần hỏi báo giá) |
