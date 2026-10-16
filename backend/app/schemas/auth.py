@@ -17,7 +17,7 @@ class RegisterIn(BaseModel):
 
 
 class LoginIn(BaseModel):
-    email: EmailStr
+    email: str = Field(min_length=1, max_length=255)  # email, or a short username → <username>@vinatrade.vn
     password: str
     totp: str | None = None
     platform: str = "web"

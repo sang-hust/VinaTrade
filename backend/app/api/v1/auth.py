@@ -79,7 +79,10 @@ async def register(body: RegisterIn, db: DB, request: Request):
 
 @router.post("/login", response_model=TokenOut)
 async def login(body: LoginIn, db: DB, request: Request):
-    user = (await db.execute(select(User).where(User.email == body.email.lower()))).scalar_one_or_none()
+    ident = body.email.strip().lower()
+    if "@" not in ident:
+        ident = f"{ident}@vinatrade.vn"
+    user = (await db.execute(select(User).where(User.email == ident))).scalar_one_or_none()
     if user and user.locked_until and user.locked_until > datetime.now(UTC):
         raise ApiError(423, "LOGIN_LOCKED", f"Đăng nhập sai quá 5 lần. Thử lại sau {int((user.locked_until - datetime.now(UTC)).total_seconds() // 60) + 1} phút.")
     if not user or not verify_password(body.password, user.password_hash):

@@ -82,7 +82,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         subtitle: 'Phân tích, lọc cổ phiếu và cảnh báo đầu tư',
         child: AutofillGroup(
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TextField(controller: _email, decoration: const InputDecoration(labelText: 'Email'), keyboardType: TextInputType.emailAddress, autofillHints: const [AutofillHints.email], onSubmitted: (_) => _submit()),
+            TextField(controller: _email, decoration: const InputDecoration(labelText: 'Email hoặc tên đăng nhập'), keyboardType: TextInputType.emailAddress, autocorrect: false, autofillHints: const [AutofillHints.username], onSubmitted: (_) => _submit()),
             const SizedBox(height: 12),
             TextField(controller: _pw, obscureText: _hide, decoration: InputDecoration(labelText: 'Mật khẩu', suffixIcon: IconButton(icon: Icon(_hide ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => _hide = !_hide))), autofillHints: const [AutofillHints.password], onSubmitted: (_) => _submit()),
             if (_needTotp) ...[
