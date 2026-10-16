@@ -1,5 +1,9 @@
 # Triển khai Vinatrade lên Railway
 
+> **Production (16/10/2026):** project Railway `vinatrade` (gói Hobby, vùng US East), service `vinatrade-api` + `Postgres`.
+> API: `https://vinatrade-api-production.up.railway.app/api/v1` · Dữ liệu chép từ máy local bằng `pg_restore | railway connect Postgres`.
+> Deploy lại: `cd backend && railway up --service vinatrade-api` (chưa nối GitHub auto-deploy).
+
 Giống Vinaguide: 1 service API (Docker) + 1 Postgres, vùng Singapore. Railway CLI đã cài và đăng nhập trên máy dev.
 
 | Thành phần | Dịch vụ |
