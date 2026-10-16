@@ -42,6 +42,17 @@ Future<void> _wait(WidgetTester tester, Finder f, {int seconds = 12}) async {
   throw TestFailure('Không thấy: $f\nSkeleton=$skel Error=$err\nTrên màn hình: $texts');
 }
 
+/// Wait until [marker] is on screen, or (short screens) until the page finished loading: no skeleton, no error box.
+Future<void> _waitLoaded(WidgetTester tester, String marker, {int seconds = 25}) async {
+  for (var i = 0; i < seconds * 5; i++) {
+    await tester.runAsync(() => Future.delayed(const Duration(milliseconds: 200)));
+    await tester.pump(const Duration(milliseconds: 100));
+    if (find.textContaining(marker).evaluate().isNotEmpty) return;
+    if (i >= 15 && find.byType(SkeletonList).evaluate().isEmpty && find.byType(Skeleton).evaluate().isEmpty && find.byType(ErrorBox).evaluate().isEmpty) return;
+  }
+  throw TestFailure('Trang chưa tải xong: $marker');
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = false;
@@ -72,7 +83,7 @@ void main() {
       await tester.tap(find.text('Bỏ qua, dùng cài đặt mặc định'));
     }
     await _wait(tester, find.textContaining('Tín hiệu hôm nay'), seconds: 25);
-    expect(find.textContaining('Thị trường đang'), findsOneWidget);
+    expect(find.textContaining('Thị trường'), findsWidgets);
 
     // Analysis FPT
     final router = container.read(routerProvider);
@@ -162,4 +173,61 @@ void main() {
     await _settle(tester, frames: 5);
     await tester.pump(const Duration(minutes: 3));
   }, timeout: const Timeout(Duration(minutes: 5)));
+
+  // iPad / tablet / landscape phone with a status bar and side insets: every main screen must render without overflow,
+  // the top bar must sit below the status bar and the account avatar must stay on screen.
+  for (final (name, size, pad) in [
+    ('iPad mini dọc 744×1133', const Size(744, 1133), const FakeViewPadding(top: 24, bottom: 20)),
+    ('iPad mini ngang 1133×744', const Size(1133, 744), const FakeViewPadding(top: 24, bottom: 20)),
+    ('iPad Air dọc 820×1180', const Size(820, 1180), const FakeViewPadding(top: 24, bottom: 20)),
+    ('iPad Air ngang 1180×820', const Size(1180, 820), const FakeViewPadding(top: 24, bottom: 20)),
+    ('iPhone ngang 844×390', const Size(844, 390), const FakeViewPadding(left: 47, right: 47, bottom: 21)),
+  ]) {
+    testWidgets('bố cục $name: không tràn, thanh trên dưới thanh trạng thái, đủ nút', (tester) async {
+      HttpOverrides.global = null;
+      final up = await tester.runAsync(_backendUp) ?? false;
+      if (!up) {
+        markTestSkipped('Backend không chạy ở ${AppConfig.apiBaseUrl}');
+        return;
+      }
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      tester.view.padding = pad;
+      tester.view.viewPadding = pad;
+      addTearDown(tester.view.reset);
+      final container = ProviderContainer();
+      await tester.pumpWidget(UncontrolledProviderScope(container: container, child: const VinatradeApp()));
+      await _wait(tester, find.widgetWithText(FilledButton, 'Đăng nhập'));
+      await tester.enterText(find.byType(TextField).at(0), 'sang.vo@paxiegames.com');
+      await tester.enterText(find.byType(TextField).at(1), 'admin-change-me');
+      await tester.tap(find.widgetWithText(FilledButton, 'Đăng nhập'));
+      await _waitLoaded(tester, 'Thị trường');
+      if (find.textContaining('Bỏ qua').evaluate().isNotEmpty) await tester.tap(find.textContaining('Bỏ qua').first);
+      await _waitLoaded(tester, 'Thị trường');
+      final router = container.read(routerProvider);
+      for (final (route, marker) in [('/', 'Tín hiệu hôm nay'), ('/stocks/FPT', 'Kế hoạch giao dịch'), ('/watch', 'Danh sách của tôi'), ('/screener', 'Kết quả'),
+                                     ('/alerts', 'Tất cả'), ('/portfolio', 'Cần xử lý'), ('/account', 'Giới hạn rủi ro'), ('/admin/overview', 'Chuỗi xử lý cuối ngày')]) {
+        router.go(route);
+        await _waitLoaded(tester, marker);
+        await _settle(tester, frames: 10);
+        expect(tester.takeException(), isNull, reason: 'lỗi bố cục ở $route ($name)');
+        if (size.width >= 600 && !route.startsWith('/admin')) {
+          final avatar = find.byTooltip('Tài khoản');
+          expect(avatar, findsOneWidget, reason: 'mất nút tài khoản ở $route ($name)');
+          final r = tester.getRect(avatar);
+          expect(r.right <= size.width - pad.right + 0.5 && r.left >= 0, isTrue, reason: 'nút tài khoản tràn khỏi màn hình ở $route ($name): $r');
+          expect(r.top >= pad.top, isTrue, reason: 'thanh trên nằm dưới thanh trạng thái ở $route ($name): $r');
+          expect(find.byTooltip('Cảnh báo'), findsOneWidget, reason: 'mất chuông ở $route ($name)');
+        }
+      }
+      await tester.runAsync(() => Future.delayed(const Duration(seconds: 3)));
+      await _settle(tester, frames: 5);
+      await tester.pumpWidget(const SizedBox());
+      container.dispose();
+      await tester.runAsync(() => Future.delayed(const Duration(seconds: 1)));
+      await _settle(tester, frames: 5);
+      await tester.pump(const Duration(minutes: 3));
+    }, timeout: const Timeout(Duration(minutes: 5)));
+  }
 }

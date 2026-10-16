@@ -100,7 +100,11 @@ class _AppShellState extends ConsumerState<AppShell> {
   Widget _desktop(BuildContext context, Widget body, SessionState s, RealtimeState rt) {
     final c = context.vn;
     final unread = rt.unread > 0 ? rt.unread : s.unread;
-    final compact = MediaQuery.sizeOf(context).width < 1400;
+    final w = MediaQuery.sizeOf(context).width;
+    // Three widths: roomy (labels on every tab), compact (icons + active label), tight (also icon-only search/AI).
+    final compact = w < 1400;
+    final tight = w < 1100;
+    final aiWidth = (w * 0.42).clamp(320.0, 400.0);
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyK, control: true): () => showSymbolSearch(context),
@@ -110,51 +114,91 @@ class _AppShellState extends ConsumerState<AppShell> {
         autofocus: true,
         child: Scaffold(
           body: Column(children: [
+            // Top bar: background runs under the status bar; content stays inside the safe area (iPad, notches, landscape).
             Container(
-              height: 64,
-              padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 24),
               decoration: BoxDecoration(color: c.surface, border: Border(bottom: BorderSide(color: c.line))),
-              child: Row(children: [
-                InkWell(onTap: () => context.go('/'), child: Row(children: [Container(width: 30, height: 30, decoration: BoxDecoration(color: c.accent, borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.show_chart, color: Colors.white, size: 18)), if (!compact) ...[const SizedBox(width: 8), Text('Vinatrade', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: c.text))]])),
-                const SizedBox(width: 20),
-                for (final n in _desktopNav) _NavItem(label: n.$2, icon: n.$3, active: _matches(widget.location, n.$1), compact: compact, onTap: () => context.go(n.$1)),
-                const Spacer(),
-                SizedBox(
-                  width: compact ? 150 : 240,
-                  child: InkWell(
-                    onTap: () => showSymbolSearch(context),
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      height: 38, padding: const EdgeInsets.symmetric(horizontal: 10),
-                      decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(10), border: Border.all(color: c.line)),
-                      child: Row(children: [Icon(Icons.search, size: 18, color: c.faint), const SizedBox(width: 8), Expanded(child: Text('Tìm mã…', style: TextStyle(color: c.faint, fontSize: 13))), if (!compact) Pill('Ctrl K', color: c.faint, bg: c.surface, fontSize: 10)]),
-                    ),
+              child: SafeArea(
+                bottom: false,
+                child: SizedBox(
+                  height: 60,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 24),
+                    child: Row(children: [
+                      InkWell(
+                        onTap: () => context.go('/'),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Container(width: 30, height: 30, decoration: BoxDecoration(color: c.accent, borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.show_chart, color: Colors.white, size: 18)),
+                          if (!compact) ...[const SizedBox(width: 8), Text('Vinatrade', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: c.text))],
+                        ]),
+                      ),
+                      SizedBox(width: compact ? 10 : 20),
+                      // Navigation takes the remaining width and scrolls if it does not fit, so the actions on the right are never pushed off-screen.
+                      Expanded(
+                        child: ShaderMask(
+                          shaderCallback: (r) => LinearGradient(colors: [Colors.white, Colors.white, Colors.white.withValues(alpha: 0)], stops: const [0, 0.94, 1]).createShader(r),
+                          blendMode: BlendMode.dstIn,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(children: [
+                              for (final n in _desktopNav) _NavItem(label: n.$2, icon: n.$3, active: _matches(widget.location, n.$1), compact: compact, onTap: () => context.go(n.$1)),
+                              const SizedBox(width: 16),
+                            ]),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      if (tight)
+                        IconButton(tooltip: 'Tìm mã (Ctrl K)', onPressed: () => showSymbolSearch(context), icon: const Icon(Icons.search))
+                      else
+                        SizedBox(
+                          width: compact ? 160 : 240,
+                          child: InkWell(
+                            onTap: () => showSymbolSearch(context),
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              height: 38, padding: const EdgeInsets.symmetric(horizontal: 10),
+                              decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(10), border: Border.all(color: c.line)),
+                              child: Row(children: [Icon(Icons.search, size: 18, color: c.faint), const SizedBox(width: 8), Expanded(child: Text('Tìm mã…', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.faint, fontSize: 13))), if (!compact) Pill('Ctrl K', color: c.faint, bg: c.surface, fontSize: 10)]),
+                            ),
+                          ),
+                        ),
+                      const SizedBox(width: 6),
+                      AskAiButton(compact: compact, onPressed: () => openAi({'screen': 'market'})),
+                      IconButton(tooltip: 'Cảnh báo', onPressed: () => context.go('/alerts'), icon: unread > 0 ? Badge(label: Text('$unread'), child: const Icon(Icons.notifications_none)) : const Icon(Icons.notifications_none)),
+                      if (s.isAdmin)
+                        (compact
+                            ? IconButton(tooltip: 'Quản trị', onPressed: () => context.go('/admin/overview'), icon: const Icon(Icons.admin_panel_settings_outlined))
+                            : TextButton.icon(onPressed: () => context.go('/admin/overview'), icon: const Icon(Icons.admin_panel_settings_outlined, size: 18), label: const Text('Quản trị'))),
+                      const SizedBox(width: 4),
+                      Tooltip(
+                        message: 'Tài khoản',
+                        child: InkWell(
+                          onTap: () => context.go('/account'),
+                          borderRadius: BorderRadius.circular(20),
+                          child: CircleAvatar(radius: 17, backgroundColor: c.accent.withValues(alpha: 0.25), child: Text((s.user['full_name']?.toString() ?? '?').characters.first.toUpperCase(), style: TextStyle(color: c.text, fontWeight: FontWeight.w700))),
+                        ),
+                      ),
+                    ]),
                   ),
                 ),
-                const SizedBox(width: 10),
-                AskAiButton(compact: compact, onPressed: () => openAi({'screen': 'market'})),
-                const SizedBox(width: 6),
-                IconButton(tooltip: 'Cảnh báo', onPressed: () => context.go('/alerts'), icon: unread > 0 ? Badge(label: Text('$unread'), child: const Icon(Icons.notifications_none)) : const Icon(Icons.notifications_none)),
-                if (s.isAdmin) (compact ? IconButton(tooltip: 'Quản trị', onPressed: () => context.go('/admin/overview'), icon: const Icon(Icons.admin_panel_settings_outlined)) : TextButton.icon(onPressed: () => context.go('/admin/overview'), icon: const Icon(Icons.admin_panel_settings_outlined, size: 18), label: const Text('Quản trị'))),
-                const SizedBox(width: 4),
-                InkWell(
-                  onTap: () => context.go('/account'),
-                  borderRadius: BorderRadius.circular(20),
-                  child: CircleAvatar(radius: 17, backgroundColor: c.accent.withValues(alpha: 0.25), child: Text((s.user['full_name']?.toString() ?? '?').characters.first.toUpperCase(), style: TextStyle(color: c.text, fontWeight: FontWeight.w700))),
-                ),
-              ]),
+              ),
             ),
             const IndexStrip(),
             Expanded(
-              child: Row(children: [
-                Expanded(child: body),
-                if (_aiOpen)
-                  Container(
-                    width: 400,
-                    decoration: BoxDecoration(color: c.surface, border: Border(left: BorderSide(color: c.line))),
-                    child: AiPanel(context_: _aiContext, onClose: () => setState(() => _aiOpen = false)),
-                  ).animate().slideX(begin: 0.2, duration: 250.ms, curve: Curves.easeOutCubic).fadeIn(),
-              ]),
+              child: SafeArea(
+                top: false,
+                bottom: false,
+                child: Row(children: [
+                  Expanded(child: body),
+                  if (_aiOpen)
+                    Container(
+                      width: aiWidth,
+                      decoration: BoxDecoration(color: c.surface, border: Border(left: BorderSide(color: c.line))),
+                      child: AiPanel(context_: _aiContext, onClose: () => setState(() => _aiOpen = false)),
+                    ).animate().slideX(begin: 0.2, duration: 250.ms, curve: Curves.easeOutCubic).fadeIn(),
+                ]),
+              ),
             ),
           ]),
         ),
@@ -195,25 +239,36 @@ class IndexStrip extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.vn;
     final ov = ref.watch(getMapProvider('/market/overview'));
+    final w = MediaQuery.sizeOf(context).width;
+    final pad = MediaQuery.paddingOf(context);
     return Container(
       height: 36,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: EdgeInsets.only(left: (w < 1400 ? 12 : 24) + pad.left, right: (w < 1400 ? 12 : 24) + pad.right),
       decoration: BoxDecoration(color: c.surface2, border: Border(bottom: BorderSide(color: c.line))),
       child: ov.when(
         data: (d) => Row(children: [
-          for (final i in asList(d['indexes']))
-            Padding(
-              padding: const EdgeInsets.only(right: 22),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
               child: Row(children: [
-                Text(i['label'].toString(), style: TextStyle(color: c.faint, fontSize: 12)),
-                const SizedBox(width: 6),
-                Text(Fmt.index(asNum(i['value'])), style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: c.changeColor(asNum(i['change_pct'])))),
-                const SizedBox(width: 4),
-                Text(Fmt.pct(asNum(i['change_pct'])), style: TextStyle(fontSize: 11.5, color: c.changeColor(asNum(i['change_pct'])))),
+                for (final i in asList(d['indexes']))
+                  Padding(
+                    padding: const EdgeInsets.only(right: 22),
+                    child: Row(children: [
+                      Text(i['label'].toString(), style: TextStyle(color: c.faint, fontSize: 12)),
+                      const SizedBox(width: 6),
+                      Text(Fmt.index(asNum(i['value'])), style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: c.changeColor(asNum(i['change_pct'])))),
+                      const SizedBox(width: 4),
+                      Text(Fmt.pct(asNum(i['change_pct'])), style: TextStyle(fontSize: 11.5, color: c.changeColor(asNum(i['change_pct'])))),
+                    ]),
+                  ),
               ]),
             ),
-          const Spacer(),
-          Text(d['session']?.toString() ?? '', style: TextStyle(color: c.faint, fontSize: 12)),
+          ),
+          if (w >= 900) ...[
+            const SizedBox(width: 12),
+            Text(d['session']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.faint, fontSize: 12)),
+          ],
         ]),
         loading: () => const SizedBox.shrink(),
         error: (e, _) => Row(children: [Icon(Icons.cloud_off, size: 14, color: c.faint), const SizedBox(width: 6), Text('Không tải được chỉ số', style: TextStyle(color: c.faint, fontSize: 12))]),
