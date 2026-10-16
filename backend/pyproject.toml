@@ -1,0 +1,46 @@
+[project]
+name = "vinatrade-backend"
+version = "0.1.0"
+description = "Vinatrade API — phân tích, lọc cổ phiếu và cảnh báo đầu tư chứng khoán Việt Nam"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "pydantic[email]>=2.9",
+    "pydantic-settings>=2.6",
+    "python-multipart>=0.0.17",
+    "anthropic>=0.40",
+    "httpx>=0.27",
+    "pyjwt>=2.10",
+    "passlib[bcrypt]>=1.7.4",
+    "bcrypt<4.1",
+    "greenlet>=3.1",
+    "pandas>=2.2",
+    "numpy>=2.0",
+    "apscheduler>=3.10,<4",
+    "openpyxl>=3.1",
+    "pyotp>=2.9",
+    "python-dateutil>=2.9",
+    "psycopg[binary]>=3.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

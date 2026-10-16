@@ -1,0 +1,11 @@
+.venv/
+.env
+.env.*
+!.env.example
+secrets/
+media/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+tests/
