@@ -85,8 +85,19 @@ async def overview(user: CurrentUser, db: DB, horizon: str = "MID"):
                for r in (await db.execute(select(SectorScore).where(SectorScore.trade_date == sd).order_by(desc(SectorScore.score)))).scalars()] if sd else []
     # upcoming events (7 days)
     today = today_vn()
-    events = [{"symbol": e.symbol, "kind": e.kind, "date": (e.ex_date or e.event_date).isoformat() if (e.ex_date or e.event_date) else None, "title": e.title}
-              for e in (await db.execute(select(CorporateAction).where(or_(CorporateAction.ex_date.between(today, today + timedelta(days=7)), CorporateAction.event_date.between(today, today + timedelta(days=7)))).order_by(CorporateAction.ex_date).limit(20))).scalars()]
+    from app.api.v1.insights import event_out, news_out
+    from app.models import InvestorFlow, NewsArticle
+    evd = func.coalesce(CorporateAction.ex_date, CorporateAction.event_date)
+    events = [event_out(e) for e in (await db.execute(select(CorporateAction).where(evd.between(today, today + timedelta(days=7)),
+                                                                                       CorporateAction.kind.in_(["CASH_DIVIDEND", "STOCK_DIVIDEND", "BONUS", "ISSUE", "AGM"]))
+                                                       .join(StockSnapshot, StockSnapshot.symbol == CorporateAction.symbol).order_by(desc(StockSnapshot.value_ma20).nulls_last()).limit(12))).scalars()]
+    events.sort(key=lambda e: e["date"] or "")
+    fd = await db.scalar(select(func.max(InvestorFlow.trade_date)))
+    flows = None
+    if fd:
+        t = (await db.execute(select(func.sum(InvestorFlow.foreign_net_val), func.sum(InvestorFlow.prop_net_val)).where(InvestorFlow.trade_date == fd))).one()
+        flows = {"date": fd.isoformat(), "foreign_net": clean(t[0]), "prop_net": clean(t[1])}
+    market_news = [news_out(a) for a in (await db.execute(select(NewsArticle).where(NewsArticle.is_market.is_(True)).order_by(desc(NewsArticle.published_at)).limit(8))).scalars()]
     coach = (await db.execute(select(CoachReport).where(CoachReport.user_id == user.id).order_by(desc(CoachReport.week_start)).limit(1))).scalar_one_or_none()
     # followed symbols with rating change today
     changed = []
@@ -109,6 +120,8 @@ async def overview(user: CurrentUser, db: DB, horizon: str = "MID"):
         "signals": {"buy": buys, "sell": sells, "watch": watch, "total": len(sigs)},
         "sectors": sectors,
         "events": events,
+        "flows": flows,
+        "news": market_news,
         "coach": {"week_start": coach.week_start.isoformat(), "insights": coach.insights, "rule": coach.rule, "benchmark": coach.benchmark} if coach else None,
         "rating_changes": changed,
         "disclaimer": DISCLAIMER,
@@ -216,6 +229,37 @@ async def analysis(symbol: str, user: CurrentUser, db: DB, horizon: str | None =
             rel = {"win_rate": None, "samples": r.samples if r else 0, "regime": reg.regime, "regime_vi": REGIME_VI.get(reg.regime), "strategy": last_sig.strategy_code,
                    "text": "chưa đủ 30 mẫu để đánh giá", "stand_aside": False}
     snap = snapshot_item(sn, st, hz)
+    from app.api.v1.insights import event_out, insider_out, news_out
+    from app.models import BrokerRecommendation, InsiderTransaction, NewsArticle, NewsStockLink
+    extra_reasons, extra_draw = [], []
+    v20 = (sn.value_ma20 or 0) * 5
+    if sn.foreign_net_5d and v20 and sn.foreign_net_5d >= 0.1 * v20:
+        extra_reasons.append({"code": "FOREIGN", "text": f"Khối ngoại mua ròng {sn.foreign_net_5d / 1e9:,.1f} tỷ đồng trong 5 phiên".replace(",", "X").replace(".", ",").replace("X", ".")})
+    elif sn.foreign_net_5d and v20 and sn.foreign_net_5d <= -0.1 * v20:
+        extra_draw.append({"code": "FOREIGN", "text": f"Khối ngoại bán ròng {abs(sn.foreign_net_5d) / 1e9:,.1f} tỷ đồng trong 5 phiên".replace(",", "X").replace(".", ",").replace("X", ".")})
+    if sn.insider_net_90d and sn.insider_net_90d < -1e9:
+        extra_draw.append({"code": "INSIDER", "text": f"Nội bộ bán ròng khoảng {abs(sn.insider_net_90d) / 1e9:,.1f} tỷ đồng trong 90 ngày".replace(",", "X").replace(".", ",").replace("X", ".")})
+    elif sn.insider_net_90d and sn.insider_net_90d > 1e9:
+        extra_reasons.append({"code": "INSIDER", "text": f"Nội bộ mua ròng khoảng {sn.insider_net_90d / 1e9:,.1f} tỷ đồng trong 90 ngày".replace(",", "X").replace(".", ",").replace("X", ".")})
+    if sn.insider_pending_sell and sn.insider_pending_sell > 0:
+        extra_draw.append({"code": "INSIDER_PENDING", "text": f"Nội bộ đang đăng ký bán {int(sn.insider_pending_sell):,} cổ phiếu".replace(",", ".")})
+    if sn.consensus_upside_pct is not None and (sn.consensus_count or 0) >= 1:
+        (extra_reasons if sn.consensus_upside_pct >= 15 else extra_draw if sn.consensus_upside_pct < 0 else []).append(
+            {"code": "CONSENSUS", "text": f"Giá mục tiêu trung bình của {sn.consensus_count} CTCK {sn.consensus_upside_pct:+.0f}% so với giá hiện tại"})
+    if sn.news_sentiment_7d is not None and (sn.news_count_7d or 0) >= 2:
+        if sn.news_sentiment_7d >= 0.3:
+            extra_reasons.append({"code": "NEWS", "text": f"Tin tức 7 ngày tích cực ({sn.news_count_7d} tin)"})
+        elif sn.news_sentiment_7d <= -0.3:
+            extra_draw.append({"code": "NEWS", "text": f"Tin tức 7 ngày tiêu cực ({sn.news_count_7d} tin)"})
+    insiders = [insider_out(i, sn.price) for i in (await db.execute(select(InsiderTransaction).where(InsiderTransaction.symbol == sym)
+                                                                   .order_by(desc(func.coalesce(InsiderTransaction.announce_date, InsiderTransaction.start_date))).limit(8))).scalars()]
+    upcoming = [event_out(e) for e in (await db.execute(select(CorporateAction).where(CorporateAction.symbol == sym, CorporateAction.kind != "LISTED",
+                                                                                     func.coalesce(CorporateAction.ex_date, CorporateAction.event_date) >= today_vn())
+                                                       .order_by(func.coalesce(CorporateAction.ex_date, CorporateAction.event_date)).limit(5))).scalars()]
+    stock_news = [news_out(a) for a in (await db.execute(select(NewsArticle).join(NewsStockLink, NewsStockLink.article_id == NewsArticle.id)
+                                                        .where(NewsStockLink.symbol == sym).order_by(desc(NewsArticle.published_at)).limit(10))).scalars()]
+    recs = [{"firm": r.firm, "rec_type": r.rec_type, "report_date": clean(r.report_date), "target_price": price_int(r.target_price)}
+            for r in (await db.execute(select(BrokerRecommendation).where(BrokerRecommendation.symbol == sym).order_by(desc(BrokerRecommendation.report_date)).limit(6))).scalars()]
     reasons = list(sc.reasons or []) if sc else []
     ai_text = next((r["text"] for r in reasons if r.get("code") == "AI"), None)
     reasons = [r for r in reasons if r.get("code") != "AI"]
@@ -260,7 +304,13 @@ async def analysis(symbol: str, user: CurrentUser, db: DB, horizon: str | None =
                           "current_gain_pct": clean(sn.gain_from_base_pct), "pct_of_median": clean(sn.rally_gain_vs_median)} if rl else None,
         "indicators": {k: clean(getattr(sn, k)) for k in ("ma10", "ma20", "ma50", "ma200", "rsi14", "macd", "macd_signal", "macd_hist", "adx14", "atr14", "bb_upper", "bb_lower", "bb_width", "mfi14", "cmf20", "stoch_k", "vol_ratio", "value_ma20", "rs_rating", "support_1", "resistance_1", "dist_ma50_pct", "ceiling_streak")},
         "fundamentals": {k: clean(getattr(sn, k)) for k in ("pe", "pb", "ps", "peg", "market_cap", "fair_value", "margin_of_safety", "dividend_yield", "roe", "roa", "gross_margin", "net_margin", "debt_to_equity", "current_ratio", "revenue_yoy", "profit_yoy", "revenue_cagr_3y", "profit_cagr_3y", "cfo_to_profit")},
-        "reasons": reasons, "drawbacks": (sc.drawbacks or []) if sc else [],
+        "reasons": (reasons + extra_reasons)[:7], "drawbacks": (((sc.drawbacks or []) if sc else []) + extra_draw)[:5],
+        "flows": {"foreign_net_today": clean(sn.foreign_net_today), "foreign_net_5d": clean(sn.foreign_net_5d), "foreign_net_20d": clean(sn.foreign_net_20d),
+                  "prop_net_5d": clean(sn.prop_net_5d), "foreign_room_pct": clean(sn.foreign_room_pct)},
+        "insiders": {"items": insiders, "net_90d": price_int(sn.insider_net_90d), "pending_sell_shares": int(sn.insider_pending_sell or 0)},
+        "events": {"upcoming": upcoming, "next": sn.next_event},
+        "consensus": {"target": price_int(sn.consensus_target), "upside_pct": clean(sn.consensus_upside_pct), "count": sn.consensus_count or 0, "items": recs},
+        "news": {"items": stock_news, "sentiment_7d": clean(sn.news_sentiment_7d), "count_7d": sn.news_count_7d or 0},
         "signals_today": sn.signals_today or [], "history": hist, "history_summary": f"{wins}/{total} tín hiệu mua có lãi sau 20 phiên" if total else None,
         "regime": reg.regime if reg else None, "regime_vi": REGIME_VI.get(reg.regime) if reg else None,
         "status_flags": st.status_flags or [], "disclaimer": DISCLAIMER,

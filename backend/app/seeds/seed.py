@@ -64,7 +64,7 @@ async def seed() -> dict:
             _ = dsl
         out["presets_new"] = n
         # data sources
-        for code, name, role, prio in (("SSI", "SSI iBoard", "PRIMARY", 1), ("VCI", "Vietcap", "BACKUP", 2), ("FILE", "Nhập file giá", "BACKUP", 9)):
+        for code, name, role, prio in (("SSI", "SSI iBoard", "PRIMARY", 1), ("VCI", "Vietcap", "BACKUP", 2), ("VND", "VNDirect finfo (sự kiện, khối ngoại, khuyến nghị)", "PRIMARY", 3), ("RSS", "Tin tức RSS (CafeF, Vietstock, VnExpress, VnEconomy)", "PRIMARY", 4), ("FILE", "Nhập file giá", "BACKUP", 9)):
             if await db.get(DataSource, code) is None:
                 db.add(DataSource(code=code, name=name, role=role, priority=prio))
         # config rows (materialise defaults so admin sees them)

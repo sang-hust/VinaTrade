@@ -87,6 +87,8 @@ async def sync_universe(db: AsyncSession, limit: int = 0) -> dict:
         if sym in existing:
             st = existing[sym]
             for k, val in vals.items():
+                if val is None and k in ("listed_shares", "name_en", "short_name", "industry_code"):
+                    continue  # never wipe a value another source filled (e.g. shares from Vietcap) when SSI omits it
                 setattr(st, k, val)
         else:
             db.add(Stock(**vals))

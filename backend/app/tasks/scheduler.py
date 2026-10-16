@@ -55,6 +55,15 @@ async def _intraday(db):
     return await intraday_pass(db)
 
 
+async def _news(db):
+    from app.ingestion.extras import enrich_snapshots, sync_news
+
+    r = await sync_news(db)
+    if r.get("new"):
+        await enrich_snapshots(db)
+    return r
+
+
 async def run_named(name: str, triggered_by: str = "admin"):
     if name == "eod" or name == "eod.all":
         from app.tasks.eod import run_eod
@@ -80,6 +89,12 @@ async def run_named(name: str, triggered_by: str = "admin"):
         return await run_job("coach_weekly", _weekly_coach, triggered_by)
     if name == "intraday":
         return await run_job("intraday", _intraday, triggered_by)
+    if name == "news_sync":
+        return await run_job("news_sync", _news, triggered_by)
+    if name == "extras_backfill":
+        from app.ingestion.extras import backfill_extras
+
+        return await run_job("extras_backfill", lambda db: backfill_extras(db), triggered_by)
     if name == "fundamentals_sync":
         from app.ingestion.fundamentals import sync_fundamentals
 
@@ -96,6 +111,7 @@ def start():
     scheduler.add_job(lambda: run_job("maintenance", _maintenance), CronTrigger(hour=0, minute=5), id="maintenance", name="Hết hạn tài khoản, dọn token", replace_existing=True)
     scheduler.add_job(lambda: run_job("coach_weekly", _weekly_coach), CronTrigger(day_of_week="sat", hour=9, minute=0), id="coach_weekly", name="Huấn luyện viên AI hằng tuần", replace_existing=True)
     scheduler.add_job(lambda: run_named("fundamentals_sync", "scheduler"), CronTrigger(day_of_week="mon-fri", hour=18, minute=0), id="fundamentals_sync", name="Cập nhật BCTC", replace_existing=True, misfire_grace_time=3600)
+    scheduler.add_job(lambda: run_job("news_sync", _news), CronTrigger(hour="6-22", minute="5,35"), id="news_sync", name="Lấy tin tức RSS + AI chấm cảm xúc (30 phút)", replace_existing=True)
     scheduler.start()
     log.info("scheduler started")
 

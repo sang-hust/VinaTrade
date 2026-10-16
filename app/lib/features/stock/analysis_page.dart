@@ -17,6 +17,7 @@ import '../ai/ai_panel.dart';
 import '../alerts/alerts_page.dart' show showRuleEditor;
 import '../pretrade/pretrade_sheet.dart';
 import '../shell/app_shell.dart' show showSymbolSearch;
+import 'insights_widgets.dart';
 
 final _analysisProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, (String, String?)>((ref, k) async => asMap(await ref.watch(apiProvider).get('/stocks/${k.$1}/analysis', query: {if (k.$2 != null) 'horizon': k.$2})));
 final _candlesProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, (String, String)>((ref, k) async => asMap(await ref.watch(apiProvider).get('/stocks/${k.$1}/candles', query: {'tf': k.$2, 'days': k.$2 == '1d' ? 300 : 400})));
@@ -193,6 +194,7 @@ class _RecommendationCard extends StatelessWidget {
         Wrap(spacing: 6, runSpacing: 6, children: [
           if (risk.isNotEmpty) Pill('Rủi ro DN ${Fmt.score(asNum(risk['score']))} · ${risk['level_vi'] ?? ''}', color: c.levelColor(risk['level']?.toString()), icon: Icons.shield_outlined),
           if (d['is_chase'] == true) Pill('Mua đuổi', color: c.ref, icon: Icons.trending_up) else Pill('Không mua đuổi', color: c.up, icon: Icons.check),
+          NextEventChip(ev: asMap(asMap(d['events'])['next'])),
           if (rel['stand_aside'] == true) Pill('Đứng ngoài', color: c.down),
         ]),
         if (rel.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Độ tin cậy: ${rel['text']}', style: TextStyle(color: c.muted, fontSize: 12.5))),
@@ -326,7 +328,9 @@ class _DetailsState extends ConsumerState<_Details> with SingleTickerProviderSta
   late final tabs = <(String, Widget Function())>[
     ('Kỹ thuật', _tech),
     if (detailRank(widget.level) >= 1) ('Cơ bản & định giá', _fund),
-    if (detailRank(widget.level) >= 1) ('Tin tức', _news),
+    ('Tin tức', _news),
+    if (detailRank(widget.level) >= 1) ('Dòng tiền & nội bộ', () => FlowsInsidersPanel(symbol: widget.symbol, d: widget.d)),
+    ('Sự kiện', () => EventsPanel(symbol: widget.symbol)),
     if (detailRank(widget.level) >= 2) ('Nền giá & đợt tăng', _bases),
     ('Lịch sử tín hiệu', _history),
   ];
@@ -409,7 +413,18 @@ class _DetailsState extends ConsumerState<_Details> with SingleTickerProviderSta
     ]);
   }
 
-  Widget _news() => Padding(padding: const EdgeInsets.all(12), child: Text('Chưa có nguồn tin tức. Khi kết nối nguồn tin và báo cáo công ty chứng khoán, mục này sẽ hiện tin theo mã kèm điểm tâm lý.', style: TextStyle(color: context.vn.muted)));
+  Widget _news() {
+    final n = asMap(widget.d['news']);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if ((asNum(n['count_7d']) ?? 0) > 0)
+        Padding(padding: const EdgeInsets.only(bottom: 6), child: Row(children: [
+          Text('7 ngày qua: ${n['count_7d']} tin', style: TextStyle(color: context.vn.muted, fontSize: 12.5)),
+          const SizedBox(width: 8),
+          SentimentPill(score: asNum(n['sentiment_7d'])),
+        ])),
+      NewsList(items: asList(n['items'])),
+    ]);
+  }
 
   Widget _bases() {
     final c = context.vn;

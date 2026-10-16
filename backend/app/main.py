@@ -6,7 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.v1 import admin, ai, alerts, auth, market, me, portfolios, risk, screener, system, watchlists
+from app.api.v1 import admin, ai, alerts, auth, insights, market, me, portfolios, risk, screener, system, watchlists
 from app.core.config import settings
 from app.core.errors import ApiError
 
@@ -29,7 +29,7 @@ app = FastAPI(title="Vinatrade API", version="0.1.0", lifespan=lifespan, docs_ur
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_list or ["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 API = "/api/v1"
-for r in (auth.router, me.router, market.router, screener.router, alerts.router, watchlists.router, portfolios.router, risk.router, ai.router, admin.router, system.router):
+for r in (auth.router, me.router, market.router, insights.router, screener.router, alerts.router, watchlists.router, portfolios.router, risk.router, ai.router, admin.router, system.router):
     app.include_router(r, prefix=API)
 
 

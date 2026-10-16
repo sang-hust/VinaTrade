@@ -40,12 +40,14 @@ def price_int(v) -> int | None:
 SNAP_LIST_COLS = ["symbol", "exchange", "industry_code", "in_vn30", "price", "change", "change_pct", "ref_price", "ceiling", "floor", "volume", "value", "vol_ratio", "value_ma20",
                   "rsi14", "ma20", "ma50", "ma200", "dist_ma50_pct", "trend_state", "rs_rating", "score_short", "score_mid", "score_long", "rating_short", "rating_mid", "rating_long",
                   "rating", "trend_short", "trend_mid", "trend_long", "entry_low", "entry_high", "stop_loss", "take_profit_1", "risk_score", "risk_level", "is_chase",
-                  "gain_from_base_pct", "base_status", "pe", "pb", "roe", "profit_yoy", "margin_of_safety", "rating_changed", "prev_rating", "signals_today", "trade_date", "high_52w", "low_52w", "market_cap"]
+                  "gain_from_base_pct", "base_status", "pe", "pb", "roe", "profit_yoy", "margin_of_safety", "rating_changed", "prev_rating", "signals_today", "trade_date", "high_52w", "low_52w", "market_cap",
+                  "foreign_net_today", "foreign_net_5d", "foreign_net_20d", "prop_net_5d", "insider_net_90d", "consensus_target", "consensus_upside_pct",
+                  "news_sentiment_7d", "news_count_7d", "next_event", "earnings_in_days", "dividend_yield"]
 
 
 def snapshot_item(s, stock=None, horizon: str = "MID") -> dict:
     d = row(s, SNAP_LIST_COLS)
-    for k in ("price", "change", "ref_price", "ceiling", "floor", "entry_low", "entry_high", "stop_loss", "take_profit_1", "ma20", "ma50", "ma200", "high_52w", "low_52w"):
+    for k in ("price", "change", "ref_price", "ceiling", "floor", "entry_low", "entry_high", "stop_loss", "take_profit_1", "ma20", "ma50", "ma200", "high_52w", "low_52w", "consensus_target"):
         d[k] = price_int(d.get(k))
     hz = horizon.lower()
     d["score"] = d.get(f"score_{hz}")

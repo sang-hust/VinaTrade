@@ -141,7 +141,9 @@ SNAP_COLS = ["symbol", "trade_date", "exchange", "industry_code", "price", "chan
              "rsi14", "macd", "adx14", "atr14", "rs_rating", "trend_state", "support_1", "resistance_1", "dist_ma50_pct", "high_52w", "low_52w", "pe", "pb", "peg",
              "market_cap", "fair_value", "margin_of_safety", "dividend_yield", "roe", "roa", "net_margin", "debt_to_equity", "revenue_yoy", "profit_yoy",
              "score_short", "score_mid", "score_long", "rating_short", "rating_mid", "rating_long", "trend_short", "trend_mid", "trend_long", "base_status",
-             "base_length_days", "gain_from_base_pct", "risk_score", "risk_level", "is_chase", "entry_low", "entry_high", "stop_loss", "take_profit_1", "signals_today"]
+             "base_length_days", "gain_from_base_pct", "risk_score", "risk_level", "is_chase", "entry_low", "entry_high", "stop_loss", "take_profit_1", "signals_today",
+             "foreign_net_today", "foreign_net_5d", "foreign_net_20d", "prop_net_5d", "insider_net_90d", "insider_pending_sell", "consensus_target",
+             "consensus_upside_pct", "consensus_count", "news_sentiment_7d", "news_count_7d", "next_event", "earnings_in_days"]
 
 TOOLS = [
     {"name": "get_stock_snapshot", "description": "Số liệu mới nhất của một mã: giá, chỉ báo, định giá, cơ bản, điểm 3 khung, khuyến nghị, kế hoạch mua bán, rủi ro.",
@@ -159,6 +161,16 @@ TOOLS = [
     {"name": "get_user_portfolio", "description": "Danh mục của chính người hỏi: vị thế, lãi/lỗ, tỷ trọng, cắt lỗ, cầu dao.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "run_screener", "description": "Chạy bộ lọc với điều kiện DSL {all:[{field,op,value}]} trên toàn thị trường, trả tối đa 15 mã điểm cao nhất. Trường hỗ trợ: price, change_pct, vol_ratio, value_ma20, ma50, ma200, rsi14, trend_state, dist_ma50_pct, pe, pb, roe, profit_yoy, score_short/mid/long, rating, base_status, risk_score, industry_code, exchange, gain_from_base_pct.",
      "input_schema": {"type": "object", "properties": {"conditions": {"type": "object"}, "horizon": {"type": "string", "enum": ["SHORT", "MID", "LONG"]}}, "required": ["conditions"]}},
+    {"name": "get_news", "description": "Tin tức gần đây (tiêu đề, tóm tắt, nguồn, giờ, cảm xúc −1..1). Truyền symbol để lấy tin của một mã, bỏ trống để lấy tin thị trường.",
+     "input_schema": {"type": "object", "properties": {"symbol": {"type": "string"}, "limit": {"type": "integer", "default": 8}}}},
+    {"name": "get_insiders", "description": "Giao dịch nội bộ của lãnh đạo, cổ đông lớn, người liên quan (đăng ký và kết quả) của một mã.",
+     "input_schema": {"type": "object", "properties": {"symbol": {"type": "string"}}, "required": ["symbol"]}},
+    {"name": "get_flows", "description": "Khối ngoại và tự doanh mua/bán ròng theo ngày của một mã (20 phiên); bỏ trống symbol để lấy toàn thị trường và top mua/bán ròng.",
+     "input_schema": {"type": "object", "properties": {"symbol": {"type": "string"}}}},
+    {"name": "get_events", "description": "Sự kiện quyền sắp tới và gần đây của một mã: cổ tức, phát hành thêm, ĐHCĐ, diện cảnh báo/kiểm soát.",
+     "input_schema": {"type": "object", "properties": {"symbol": {"type": "string"}}, "required": ["symbol"]}},
+    {"name": "get_recommendations", "description": "Khuyến nghị và giá mục tiêu của các công ty chứng khoán cho một mã, kèm giá mục tiêu trung bình.",
+     "input_schema": {"type": "object", "properties": {"symbol": {"type": "string"}}, "required": ["symbol"]}},
     {"name": "search_stocks", "description": "Tìm mã theo tên công ty hoặc ngành.", "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
 ]
 
@@ -222,6 +234,29 @@ async def run_tool(db: AsyncSession, user: User, name: str, args: dict) -> dict 
             return [_fmt_row(r, ["symbol", "price", "change_pct", "score_mid", "rating", "rsi14", "dist_ma50_pct", "pe", "roe", "risk_score"]) for r in rows]
         except DslError as e:
             return {"error": str(e)}
+    if name in ("get_news", "get_insiders", "get_flows", "get_events", "get_recommendations"):
+        from app.api.v1 import insights
+
+        if name == "get_news":
+            n = min(int(args.get("limit") or 8), 20)
+            if sym:
+                return (await insights.stock_news(sym, user, db, limit=n))["items"]
+            return (await insights.news(user, db, market=True, page=1, size=n))["items"]
+        if name == "get_insiders":
+            r = await insights.stock_insiders(sym, user, db, limit=15)
+            return {"net_90d_vnd": r["net_90d"], "pending_sell_shares": r["pending_sell_shares"],
+                    "items": [{k: i[k] for k in ("person", "relation", "side_vi", "status_vi", "quantity", "quantity_done", "announce_date", "start_date", "end_date", "value_est")} for i in r["items"]]}
+        if name == "get_flows":
+            if sym:
+                r = await insights.stock_flows(sym, user, db, days=20)
+                return {k: r[k] for k in ("foreign_net_today", "foreign_net_5d", "foreign_net_20d", "prop_net_5d", "foreign_room_pct")} | {"series": r["series"][-10:]}
+            r = await insights.market_flows(user, db, top=8)
+            return {k: r[k] for k in ("date", "foreign_net", "prop_net", "top_buy", "top_sell")}
+        if name == "get_events":
+            r = await insights.stock_events(sym, user, db, limit=15)
+            return {"upcoming": r["upcoming"][:5], "recent": r["recent"][:6], "alerts": r["alerts"][:3]}
+        r = await insights.stock_recommendations(sym, user, db, limit=10)
+        return {k: r[k] for k in ("consensus_target", "consensus_upside_pct", "consensus_count")} | {"items": r["items"][:8]}
     if name == "search_stocks":
         q = f"%{args.get('query', '')}%"
         rows = (await db.execute(select(Stock).where(Stock.is_active, (Stock.name_vi.ilike(q)) | (Stock.symbol.ilike(q))).limit(10))).scalars().all()

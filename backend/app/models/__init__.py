@@ -14,12 +14,16 @@ from app.models.analysis import (  # noqa: F401
     Strategy,
 )
 from app.models.market import (  # noqa: F401
+    BrokerRecommendation,
     CorporateAction,
     FinancialRatio,
     FinancialStatement,
     IndexDaily,
     Industry,
     InsiderTransaction,
+    InvestorFlow,
+    NewsArticle,
+    NewsStockLink,
     PriceDaily,
     PriceIntraday,
     Stock,

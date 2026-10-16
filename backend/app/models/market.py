@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -163,30 +163,114 @@ class FinancialRatio(Base):
 
 
 class CorporateAction(Base):
+    """Corporate events from VNDirect (investorRight + stockAlert). ex_date = ngày GDKHQ (effectiveDate)."""
+
     __tablename__ = "corporate_actions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    external_id: Mapped[str | None] = mapped_column(String(64), unique=True)
     symbol: Mapped[str] = mapped_column(String(12), index=True)
-    kind: Mapped[str] = mapped_column(String(24))  # CASH_DIVIDEND | STOCK_DIVIDEND | RIGHTS | AGM | EARNINGS | SPLIT
+    kind: Mapped[str] = mapped_column(String(24), index=True)
+    # CASH_DIVIDEND | STOCK_DIVIDEND | BONUS | ISSUE | AGM | AGM_RECORD | POLL | LISTED | PAY_DATE_CHANGE
+    # ALERT_CONTROL | ALERT_SPECIAL_CONTROL | ALERT_WARNING | ALERT_SUSPEND | ALERT_DELIST | ALERT_NOTICE | ALERT_OTHER
     ex_date: Mapped[date | None] = mapped_column(Date, index=True)
     record_date: Mapped[date | None] = mapped_column(Date)
-    event_date: Mapped[date | None] = mapped_column(Date)
-    ratio: Mapped[float | None] = mapped_column(Float)
+    event_date: Mapped[date | None] = mapped_column(Date)  # pay date / meeting date
+    disclosure_date: Mapped[date | None] = mapped_column(Date, index=True)
+    ratio: Mapped[float | None] = mapped_column(Float)  # % (10 = 10%)
     cash_per_share: Mapped[float | None] = mapped_column(Float)
+    issue_price: Mapped[float | None] = mapped_column(Float)
+    shares: Mapped[float | None] = mapped_column(Float)
     title: Mapped[str | None] = mapped_column(String(255))
+    note: Mapped[str | None] = mapped_column(Text)
     detail: Mapped[dict | None] = mapped_column(JSON)
     source: Mapped[str | None] = mapped_column(String(12))
 
 
 class InsiderTransaction(Base):
+    """Director / major-holder / related-person deals (Vietcap). side BUY | SELL; status REGISTERED | DONE | CANCELLED."""
+
     __tablename__ = "insider_transactions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    external_id: Mapped[str | None] = mapped_column(String(64), unique=True)
     symbol: Mapped[str] = mapped_column(String(12), index=True)
     person: Mapped[str | None] = mapped_column(String(255))
-    relation: Mapped[str | None] = mapped_column(String(120))
-    side: Mapped[str] = mapped_column(String(8))  # BUY | SELL | PLEDGE
-    quantity: Mapped[int | None] = mapped_column(BigInteger)
+    relation: Mapped[str | None] = mapped_column(String(255))  # chức vụ / quan hệ
+    related_person: Mapped[str | None] = mapped_column(String(255))
+    event_code: Mapped[str | None] = mapped_column(String(12))  # DDIND cá nhân | DDINS tổ chức | DDRP người liên quan
+    side: Mapped[str] = mapped_column(String(8))
+    quantity: Mapped[int | None] = mapped_column(BigInteger)  # registered
+    quantity_done: Mapped[int | None] = mapped_column(BigInteger)
+    shares_before: Mapped[int | None] = mapped_column(BigInteger)
+    shares_after: Mapped[int | None] = mapped_column(BigInteger)
+    ownership_after_pct: Mapped[float | None] = mapped_column(Float)
+    start_date: Mapped[date | None] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date)
     announce_date: Mapped[date | None] = mapped_column(Date, index=True)
-    status: Mapped[str | None] = mapped_column(String(16))  # REGISTERED | DONE
+    status: Mapped[str | None] = mapped_column(String(16))
+    title: Mapped[str | None] = mapped_column(String(255))
+    source_url: Mapped[str | None] = mapped_column(String(255))
     source: Mapped[str | None] = mapped_column(String(12))
+
+
+class InvestorFlow(Base):
+    """Foreign (VNDirect / SSI) and proprietary (VNDirect) trading per symbol per day, VND."""
+
+    __tablename__ = "investor_flows"
+    __table_args__ = (Index("ix_investor_flows_date", "trade_date"),)
+
+    symbol: Mapped[str] = mapped_column(String(12), primary_key=True)
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    foreign_buy_val: Mapped[float | None] = mapped_column(Float)
+    foreign_sell_val: Mapped[float | None] = mapped_column(Float)
+    foreign_net_val: Mapped[float | None] = mapped_column(Float)
+    foreign_buy_vol: Mapped[float | None] = mapped_column(Float)
+    foreign_sell_vol: Mapped[float | None] = mapped_column(Float)
+    foreign_net_vol: Mapped[float | None] = mapped_column(Float)
+    foreign_room: Mapped[float | None] = mapped_column(Float)
+    prop_buy_val: Mapped[float | None] = mapped_column(Float)
+    prop_sell_val: Mapped[float | None] = mapped_column(Float)
+    prop_net_val: Mapped[float | None] = mapped_column(Float)
+
+
+class BrokerRecommendation(Base):
+    __tablename__ = "broker_recommendations"
+    __table_args__ = (UniqueConstraint("symbol", "firm", "report_date", name="uq_broker_rec"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(String(12), index=True)
+    firm: Mapped[str] = mapped_column(String(80))
+    rec_type: Mapped[str | None] = mapped_column(String(16))  # BUY | OUTPERFORM | HOLD | NEUTRAL | UNDERPERFORM | SELL
+    report_date: Mapped[date] = mapped_column(Date, index=True)
+    report_price: Mapped[float | None] = mapped_column(Float)  # VND
+    target_price: Mapped[float | None] = mapped_column(Float)  # VND
+    analyst: Mapped[str | None] = mapped_column(String(120))
+    source: Mapped[str | None] = mapped_column(String(40))
+
+
+class NewsArticle(Base):
+    __tablename__ = "news_articles"
+    __table_args__ = (Index("ix_news_published", "published_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    url: Mapped[str] = mapped_column(String(500), unique=True)
+    source: Mapped[str] = mapped_column(String(40))
+    title: Mapped[str] = mapped_column(String(500))
+    summary: Mapped[str | None] = mapped_column(Text)
+    image_url: Mapped[str | None] = mapped_column(String(500))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    symbols: Mapped[list | None] = mapped_column(JSON)
+    is_market: Mapped[bool] = mapped_column(Boolean, default=False)
+    sentiment: Mapped[float | None] = mapped_column(Float)  # −1..1
+    sentiment_label: Mapped[str | None] = mapped_column(String(12))  # POSITIVE | NEUTRAL | NEGATIVE
+    ai_summary: Mapped[str | None] = mapped_column(String(400))
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class NewsStockLink(Base):
+    __tablename__ = "news_stock_links"
+
+    article_id: Mapped[int] = mapped_column(ForeignKey("news_articles.id", ondelete="CASCADE"), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(12), primary_key=True, index=True)

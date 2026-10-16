@@ -100,6 +100,30 @@ async def step_prices(db: AsyncSession) -> dict:
     return r
 
 
+async def step_extras(db: AsyncSession) -> dict:
+    """Events + exchange alerts, foreign/proprietary flows, broker recommendations, insider deals (free sources, see docs/NGUON-DU-LIEU.md)."""
+    from app.ingestion import extras
+
+    out = {}
+    for name, coro in (("events", extras.sync_events(db)), ("flows", extras.sync_flows(db, extras.trading_days_back(3))),
+                       ("recommendations", extras.sync_recommendations(db)), ("insiders", extras.sync_insiders(db))):
+        try:
+            r = await coro
+            out[name] = r
+        except Exception as e:  # noqa: BLE001
+            log.warning("extras %s failed: %s", name, e)
+            out[name] = {"error": str(e)[:200]}
+            out["warn"] = True
+    out["summary"] = ", ".join(f"{k}={next(iter(v.values())) if isinstance(v, dict) and v else v}" for k, v in out.items() if k not in ("warn",))
+    return out
+
+
+async def step_enrich(db: AsyncSession) -> dict:
+    from app.ingestion.extras import enrich_snapshots
+
+    return await enrich_snapshots(db)
+
+
 async def step_indicators(db: AsyncSession, full: bool = False) -> dict:
     stocks = await _active_symbols(db)
     ex = {s.symbol: s.exchange for s in stocks}
@@ -493,14 +517,21 @@ def _reasons(i: IndicatorDaily, r: FinancialRatio | None, b: PriceBase | None, r
 
 
 async def step_company_risk(db: AsyncSession) -> dict:
+    from app.ingestion.extras import risk_inputs
+
     stocks = await _active_symbols(db)
     ratios = {r.symbol: r for r in (await db.execute(select(FinancialRatio).where(FinancialRatio.symbol.in_([s.symbol for s in stocks])))).scalars()}
+    extra = await risk_inputs(db)
     as_of = last_closed_trading_day()
     n = 0
     for s in stocks:
         r = ratios.get(s.symbol)
         rd = {c: getattr(r, c) for c in ("cfo_negative_quarters", "eps_ttm", "receivable_gap_pt", "inventory_gap_pt", "market_cap", "dilution_pct", "debt_to_equity")} if r else {}
-        res = company_risk(rd, {"status_flags": s.status_flags, "is_bank": s.is_bank})
+        x = extra.get(s.symbol, {})
+        if x.get("dilution_pct"):
+            rd["dilution_pct"] = x["dilution_pct"]
+        res = company_risk(rd, {"status_flags": s.status_flags, "is_bank": s.is_bank}, insider_net_sell_vnd=x.get("insider_net_sell_vnd", 0.0),
+                           audit_qualified=bool(x.get("audit_qualified")), late_filing=bool(x.get("late_filing")))
         vals = dict(as_of=as_of, score=res["score"], level=res["level"], flags=res["flags"])
         stmt = insert(CompanyRiskScore).values(symbol=s.symbol, **vals)
         await db.execute(stmt.on_conflict_do_update(index_elements=["symbol"], set_=vals))
@@ -793,6 +824,7 @@ async def step_explain(db: AsyncSession) -> dict:
 EOD_STEPS = [
     ("eod.universe", step_universe),
     ("eod.prices", step_prices),
+    ("eod.extras", step_extras),
     ("eod.indicators", step_indicators),
     ("eod.bases", step_bases),
     ("eod.rs_beta", step_rs_beta),
@@ -803,6 +835,7 @@ EOD_STEPS = [
     ("eod.scores", step_scores),
     ("eod.signals", step_signals),
     ("eod.snapshot", step_snapshot),
+    ("eod.enrich", step_enrich),
     ("eod.outcomes", step_outcomes),
     ("eod.presets", step_presets),
     ("eod.explain", step_explain),
@@ -817,7 +850,7 @@ async def run_eod(triggered_by: str = "scheduler", skip_ingest: bool = False, on
     for name, fn in EOD_STEPS:
         if only and name not in only:
             continue
-        if skip_ingest and name in ("eod.universe", "eod.prices"):
+        if skip_ingest and name in ("eod.universe", "eod.prices", "eod.extras"):
             continue
         if fn is None:
             fn = step_users

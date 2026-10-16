@@ -114,3 +114,53 @@ class VCIAdapter(DataAdapter):
                     if pd_ and "public_date" not in rec:
                         rec["public_date"] = pd_[:10]
         return merged
+
+
+INSIDER_STATUS = {"Đăng ký": "REGISTERED", "Đã thực hiện xong": "DONE", "Hủy": "CANCELLED", "Không thực hiện": "CANCELLED", "Hủy đăng ký": "CANCELLED"}
+
+
+async def _vci_insiders(self: "VCIAdapter", symbol: str, size: int = 50, pages: int = 1) -> list[dict]:
+    """Director / major-holder / related-person deals (registration + result)."""
+    out = []
+    for page in range(pages):
+        r = await self.client.get(f"{BASE}/iq-insight-service/v1/company/{symbol}/insider-transaction", params={"page": page, "size": size})
+        if r.status_code != 200:
+            break
+        data = (r.json() or {}).get("data") or {}
+        rows = data.get("content") or []
+        for x in rows:
+            act = (x.get("actionTypeCode") or "").upper()
+            side = "BUY" if act == "B" else "SELL" if act == "S" else None
+            if not side:
+                t = (x.get("eventTitleVi") or "").lower()
+                side = "SELL" if " bán " in f" {t} " else "BUY" if " mua " in f" {t} " else None
+            if not side:
+                continue
+            status = INSIDER_STATUS.get((x.get("tradeStatusVi") or "").strip(), "DONE" if (x.get("shareAcquire") or 0) else "REGISTERED")
+
+            def d(k):
+                v = x.get(k)
+                return v[:10] if v else None
+
+            out.append({
+                "external_id": f"VCI:{x.get('id')}",
+                "symbol": symbol,
+                "person": (x.get("traderNameVi") or "")[:255] or None,
+                "relation": (x.get("roleNameVi") or "")[:255] or None,
+                "related_person": (x.get("relativeNameVi") or "")[:255] or None,
+                "event_code": (x.get("eventCode") or "")[:12] or None,
+                "side": side,
+                "quantity": abs(int(x["shareRegister"])) if x.get("shareRegister") else None,
+                "quantity_done": abs(int(x["shareAcquire"])) if x.get("shareAcquire") else None,  # sells come back negative
+                "shares_before": int(x["shareBeforeTrade"]) if x.get("shareBeforeTrade") else None,
+                "shares_after": int(x["shareAfterTrade"]) if x.get("shareAfterTrade") else None,
+                "ownership_after_pct": round(float(x["ownershipAfterTrade"]) * 100, 4) if x.get("ownershipAfterTrade") else None,
+                "start_date": d("startDate"), "end_date": d("endDate"), "announce_date": d("publicDate"),
+                "status": status, "title": (x.get("eventTitleVi") or "")[:255] or None, "source_url": (x.get("sourceUrlVi") or "")[:255] or None, "source": "VCI",
+            })
+        if len(rows) < size:
+            break
+    return out
+
+
+VCIAdapter.insiders = _vci_insiders

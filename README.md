@@ -68,7 +68,7 @@ Xem [`docs/DEPLOY.md`](docs/DEPLOY.md) — Railway (API + Postgres, Singapore) g
 ## Giới hạn hiện tại
 
 - Dữ liệu trong phiên: quét 5 phút một lần cho mã theo dõi (SSI), chưa phải realtime 15 giây; WebSocket đã có kênh `quotes:<mã>`.
-- Tin tức, giao dịch nội bộ, cầm cố, sự kiện quyền chưa có nguồn — điểm rủi ro DN hiện dựa trên BCTC và diện cảnh báo của Sở.
+- Tin tức (RSS), giao dịch nội bộ, sự kiện quyền, khối ngoại/tự doanh, khuyến nghị CTCK lấy từ nguồn công khai miễn phí (xem `docs/NGUON-DU-LIEU.md`). Chưa có dữ liệu cầm cố cổ phiếu và ý kiến kiểm toán đầy đủ.
 - Điểm ngành dùng hiệu suất giá, độ rộng, dòng tiền và yếu tố vĩ mô do Admin bật (`macro.active_factors`); chưa nạp số liệu vĩ mô tự động.
 - Giá điều chỉnh theo nguồn (SSI/Vietcap đã điều chỉnh sự kiện quyền).
 - Backtest chiến lược: `backfill.py` chạy lại chiến lược trên 4 năm để có độ tin cậy; chưa có báo cáo đường vốn chi tiết từng chiến lược.

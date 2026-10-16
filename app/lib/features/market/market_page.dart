@@ -8,6 +8,7 @@ import '../../core/format.dart';
 import '../../core/providers.dart';
 import '../../core/responsive.dart';
 import '../../core/theme.dart';
+import '../stock/insights_widgets.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/score.dart';
 import '../../shared/widgets/stock_rows.dart';
@@ -35,13 +36,17 @@ class MarketPage extends ConsumerWidget {
             SizedBox(height: context.gap),
             if (context.isDesktop)
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(flex: 5, child: Column(children: [_Signals(d, hz).stagger(context, 1), SizedBox(height: context.gap), _Events(d).stagger(context, 3)])),
+                Expanded(flex: 5, child: Column(children: [_Signals(d, hz).stagger(context, 1), SizedBox(height: context.gap), MarketNewsCard(items: asList(d['news'])).stagger(context, 2), SizedBox(height: context.gap), _Events(d).stagger(context, 3)])),
                 SizedBox(width: context.gap),
-                Expanded(flex: 3, child: Column(children: [if (d['coach'] != null) ...[_Coach(d['coach']).stagger(context, 1), SizedBox(height: context.gap)], _Sectors(d).stagger(context, 2), SizedBox(height: context.gap), _RatingChanges(d).stagger(context, 3)])),
+                Expanded(flex: 3, child: Column(children: [if (d['coach'] != null) ...[_Coach(d['coach']).stagger(context, 1), SizedBox(height: context.gap)], const MarketFlowsCard().stagger(context, 2), SizedBox(height: context.gap), _Sectors(d).stagger(context, 2), SizedBox(height: context.gap), _RatingChanges(d).stagger(context, 3)])),
               ])
             else ...[
               if (d['coach'] != null) ...[_Coach(d['coach']).stagger(context, 1), SizedBox(height: context.gap)],
               _Signals(d, hz).stagger(context, 2),
+              SizedBox(height: context.gap),
+              const MarketFlowsCard().stagger(context, 3),
+              SizedBox(height: context.gap),
+              MarketNewsCard(items: asList(d['news'])).stagger(context, 3),
               SizedBox(height: context.gap),
               _Sectors(d).stagger(context, 3),
               SizedBox(height: context.gap),
@@ -257,8 +262,14 @@ class _Events extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('Sự kiện tuần', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        if (rows.isEmpty) Text('Chưa có nguồn lịch sự kiện (BCTC, GDKHQ, cơ cấu ETF). Sẽ bổ sung khi kết nối nguồn dữ liệu sự kiện.', style: TextStyle(color: c.muted, fontSize: 13)),
-        for (final e in rows) ListTile(dense: true, contentPadding: EdgeInsets.zero, leading: Text(Fmt.date(Fmt.parseDate(e['date'])), style: TextStyle(color: c.faint)), title: Text('${e['symbol']} · ${e['title'] ?? e['kind']}')),
+        if (rows.isEmpty) Text('Không có cổ tức, phát hành hay ĐHCĐ của mã thanh khoản cao trong 7 ngày tới.', style: TextStyle(color: c.muted, fontSize: 13)),
+        for (final e in rows)
+          ListTile(
+            dense: true, contentPadding: EdgeInsets.zero, onTap: () => context.push('/stocks/${e['symbol']}'),
+            leading: Text(Fmt.date(Fmt.parseDate(e['date'])), style: TextStyle(color: c.faint)),
+            title: Text('${e['symbol']} · ${e['kind_vi'] ?? e['title'] ?? e['kind']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: (e['note'] ?? '').toString().isEmpty ? null : Text(e['note'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.muted, fontSize: 12)),
+          ),
       ]),
     );
   }

@@ -370,6 +370,19 @@ class StockSnapshot(Base):
     entry_high: Mapped[float | None] = mapped_column(Float)
     stop_loss: Mapped[float | None] = mapped_column(Float)
     take_profit_1: Mapped[float | None] = mapped_column(Float)
+    foreign_net_5d: Mapped[float | None] = mapped_column(Float)  # VND
+    foreign_net_20d: Mapped[float | None] = mapped_column(Float)
+    foreign_net_today: Mapped[float | None] = mapped_column(Float)
+    prop_net_5d: Mapped[float | None] = mapped_column(Float)
+    foreign_room_pct: Mapped[float | None] = mapped_column(Float)
+    insider_net_90d: Mapped[float | None] = mapped_column(Float)  # VND, negative = net selling
+    insider_pending_sell: Mapped[float | None] = mapped_column(Float)  # registered sells not yet done, shares
+    consensus_target: Mapped[float | None] = mapped_column(Float)
+    consensus_upside_pct: Mapped[float | None] = mapped_column(Float)
+    consensus_count: Mapped[int | None] = mapped_column(Integer)
+    news_sentiment_7d: Mapped[float | None] = mapped_column(Float)
+    news_count_7d: Mapped[int | None] = mapped_column(Integer)
+    next_event: Mapped[dict | None] = mapped_column(JSON)
     rating_changed: Mapped[bool | None] = mapped_column(Boolean)
     prev_rating: Mapped[str | None] = mapped_column(String(12))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

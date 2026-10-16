@@ -72,7 +72,15 @@ FIELDS: dict[str, dict] = {
     # rủi ro
     "risk_score": {"type": "num", "vi": "Điểm rủi ro DN", "group": "risk"},
     "beta_60": {"type": "num", "vi": "Beta 60 phiên", "group": "risk"},
-    "earnings_in_days": {"type": "num", "vi": "Số phiên tới BCTC/GDKHQ", "group": "risk"},
+    "earnings_in_days": {"type": "num", "vi": "Số ngày tới sự kiện quyền (GDKHQ/ĐHCĐ)", "group": "risk"},
+    "insider_net_90d": {"type": "num", "vi": "Nội bộ mua/bán ròng 90 ngày (đồng)", "group": "risk"},
+    # dòng tiền & đồng thuận
+    "foreign_net_today": {"type": "num", "vi": "Khối ngoại ròng hôm nay (đồng)", "group": "flow"},
+    "foreign_net_5d": {"type": "num", "vi": "Khối ngoại ròng 5 phiên (đồng)", "group": "flow"},
+    "foreign_net_20d": {"type": "num", "vi": "Khối ngoại ròng 20 phiên (đồng)", "group": "flow"},
+    "prop_net_5d": {"type": "num", "vi": "Tự doanh ròng 5 phiên (đồng)", "group": "flow"},
+    "consensus_upside_pct": {"type": "num", "vi": "Tiềm năng theo giá mục tiêu CTCK (%)", "group": "val"},
+    "news_sentiment_7d": {"type": "num", "vi": "Cảm xúc tin 7 ngày (−1..1)", "group": "score"},
     # danh mục (chỉ dùng trong cảnh báo / kế hoạch, đánh giá trong bộ nhớ)
     "position_pnl_pct": {"type": "num", "vi": "Lãi/lỗ vị thế %", "group": "pf", "memory_only": True},
     "position_weight_pct": {"type": "num", "vi": "Tỷ trọng vị thế %", "group": "pf", "memory_only": True},

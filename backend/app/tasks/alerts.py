@@ -88,6 +88,11 @@ async def step_users(db: AsyncSession) -> dict:
                 a = await create_alert(db, u, kind="PRICE", priority="INFO", title=f"Bộ lọc “{sc.name}” có {len(new)} mã mới", body=", ".join(new[:12]),
                                        deeplink=f"/screener/{sc.id}", dedupe_key=f"scr:{sc.id}:{d.isoformat() if d else ''}")
                 stats["alerts"] += 1 if a else 0
+        # 4b. insider registrations, strong foreign flows, upcoming rights, strongly negative news on followed symbols
+        try:
+            await _insight_alerts(db, u, followed, snaps, d)
+        except Exception as e:  # noqa: BLE001
+            log.warning("insight alerts failed: %s", e)
         # 5. risk guard + action items + plans
         g = await evaluate_guard(db, u)
         guard_modes[u.id] = g["mode"]
@@ -146,3 +151,44 @@ async def _rule_hits(db: AsyncSession, user: User, r: AlertRule, snap_dicts: dic
         if evaluate(r.conditions, row):
             hits.append(sym)
     return hits
+
+
+async def _insight_alerts(db: AsyncSession, u: User, followed: set[str], snaps: dict, d) -> None:
+    from datetime import timedelta
+
+    from app.core.vntime import today_vn
+    from app.models import CorporateAction, InsiderTransaction, NewsArticle, NewsStockLink
+
+    if not followed:
+        return
+    today = today_vn()
+    for ins in (await db.execute(select(InsiderTransaction).where(InsiderTransaction.symbol.in_(followed), InsiderTransaction.announce_date >= today - timedelta(days=3),
+                                                                  InsiderTransaction.status == "REGISTERED"))).scalars():
+        sn = snaps.get(ins.symbol)
+        val = (ins.quantity or 0) * (sn.price if sn and sn.price else 0)
+        if val < 1e9 and (ins.quantity or 0) < 500_000:
+            continue
+        verb = "đăng ký bán" if ins.side == "SELL" else "đăng ký mua"
+        await create_alert(db, u, kind="PRICE", priority="HIGH" if ins.side == "SELL" else "INFO", symbol=ins.symbol, deeplink=f"/stocks/{ins.symbol}",
+                           title=f"{ins.symbol}: {ins.person or 'nội bộ'} {verb} {fmt(ins.quantity)} cổ phiếu",
+                           body=f"{ins.relation or 'Người nội bộ'}. Thời gian {ins.start_date.strftime('%d/%m') if ins.start_date else '—'}–{ins.end_date.strftime('%d/%m') if ins.end_date else '—'}, ước tính {val / 1e9:.1f} tỷ đồng.".replace(".", ",", 1) if val else None,
+                           dedupe_key=f"insider:{ins.external_id}", dedupe_hours=24 * 30)
+    for sym in followed:
+        sn = snaps.get(sym)
+        if not sn or not sn.foreign_net_5d or not sn.value_ma20:
+            continue
+        if abs(sn.foreign_net_5d) >= 0.2 * sn.value_ma20 * 5 and abs(sn.foreign_net_5d) >= 5e9:
+            gom = sn.foreign_net_5d > 0
+            await create_alert(db, u, kind="PRICE", priority="INFO", symbol=sym, deeplink=f"/stocks/{sym}",
+                               title=f"{sym}: khối ngoại {'gom' if gom else 'xả'} mạnh 5 phiên",
+                               body=f"Ròng {sn.foreign_net_5d / 1e9:+.1f} tỷ đồng, bằng {abs(sn.foreign_net_5d) / (sn.value_ma20 * 5) * 100:.0f}% giá trị giao dịch 5 phiên.".replace(".", ","),
+                               dedupe_key=f"foreign:{sym}:{d.isoformat() if d else today.isoformat()}", dedupe_hours=72)
+    for e in (await db.execute(select(CorporateAction).where(CorporateAction.symbol.in_(followed), CorporateAction.ex_date.between(today, today + timedelta(days=3)),
+                                                             CorporateAction.kind.in_(["CASH_DIVIDEND", "STOCK_DIVIDEND", "BONUS", "ISSUE"])))).scalars():
+        await create_alert(db, u, kind="PRICE", priority="INFO", symbol=e.symbol, deeplink=f"/stocks/{e.symbol}",
+                           title=f"{e.symbol}: ngày GDKHQ {e.ex_date.strftime('%d/%m')} — {(e.title or '').lower()}", body=e.note,
+                           dedupe_key=f"event:{e.external_id}", dedupe_hours=24 * 7)
+    for a, sym in (await db.execute(select(NewsArticle, NewsStockLink.symbol).join(NewsStockLink, NewsStockLink.article_id == NewsArticle.id)
+                                     .where(NewsStockLink.symbol.in_(followed), NewsArticle.published_at >= today - timedelta(days=1), NewsArticle.sentiment <= -0.6))).all():
+        await create_alert(db, u, kind="PRICE", priority="INFO", symbol=sym, deeplink=f"/stocks/{sym}", title=f"{sym}: tin tiêu cực — {a.title[:150]}",
+                           body=a.ai_summary or None, data={"url": a.url}, dedupe_key=f"news:{a.id}:{sym}", dedupe_hours=24 * 7)
