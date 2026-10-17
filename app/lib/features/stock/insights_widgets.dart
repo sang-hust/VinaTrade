@@ -64,7 +64,7 @@ class NewsList extends StatelessWidget {
                 Text('${list[i]['source']} · ${Fmt.relative(Fmt.parseDate(list[i]['published_at']))}', style: TextStyle(color: c.faint, fontSize: 11.5)),
                 SentimentPill(label: list[i]['sentiment_label']?.toString()),
                 if (showSymbols)
-                  for (final s in asList(list[i]['symbols']).take(4))
+                  for (final s in ((list[i]['symbols'] as List?) ?? const []).take(4))
                     InkWell(onTap: () => context.push('/stocks/$s'), child: Text(s.toString(), style: TextStyle(color: c.link, fontWeight: FontWeight.w700, fontSize: 12))),
               ]),
             ]),

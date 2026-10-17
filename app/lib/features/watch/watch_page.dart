@@ -7,6 +7,7 @@ import '../../core/format.dart';
 import '../../core/providers.dart';
 import '../../core/responsive.dart';
 import '../../core/theme.dart';
+import '../../shared/widgets/brand.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/score.dart';
 import '../../shared/widgets/stock_rows.dart';
@@ -121,7 +122,7 @@ class _WatchPageState extends ConsumerState<WatchPage> {
             ]),
             const SizedBox(height: 12),
             if (items.isEmpty)
-              EmptyState(icon: Icons.visibility_outlined, message: 'Danh sách này chưa có mã. Tìm mã ở ô phía trên hoặc thêm từ tab Cơ hội, Bộ lọc.', actionLabel: 'Thêm mã', onAction: () => showSymbolSearch(context, onPick: (r) => _add(r['symbol'])))
+              EmptyState(art: EmptyArt.watchlist, title: 'Chưa có mã theo dõi', message: 'Thêm mã để theo dõi diễn biến, hoặc thêm nhanh từ tab Cơ hội và Bộ lọc.', actionLabel: 'Thêm mã', onAction: () => showSymbolSearch(context, onPick: (r) => _add(r['symbol'])))
             else
               StockTable(
                 rows: items, subtitleKey: null,

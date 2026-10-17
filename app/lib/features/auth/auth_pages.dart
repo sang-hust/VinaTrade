@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../shared/widgets/brand.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -25,10 +26,10 @@ class AuthScaffold extends StatelessWidget {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Container(width: 40, height: 40, decoration: BoxDecoration(color: c.accent, borderRadius: BorderRadius.circular(10)), child: const Icon(Icons.show_chart, color: Colors.white)),
-                const SizedBox(width: 10),
-                Text('Vinatrade', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+              Column(children: [
+                const Center(child: BrandLockup(height: 40)),
+                const SizedBox(height: 10),
+                Text('Bình tĩnh quan sát. Chủ động quyết định.', textAlign: TextAlign.center, style: TextStyle(color: c.muted, fontSize: 13.5)),
               ]).animate().fadeIn(duration: 300.ms).slideY(begin: -0.1),
               const SizedBox(height: 28),
               Text(title, style: Theme.of(context).textTheme.titleLarge),

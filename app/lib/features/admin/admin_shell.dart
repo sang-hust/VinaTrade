@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import '../../shared/widgets/brand.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -63,7 +64,7 @@ class AdminShell extends ConsumerWidget {
         return Scaffold(
           backgroundColor: c.bg,
           appBar: AppBar(
-            title: Row(children: [Container(width: 28, height: 28, decoration: BoxDecoration(color: c.accent, borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.show_chart, color: Colors.white, size: 16)), const SizedBox(width: 8), const Text('Vinatrade'), const SizedBox(width: 8), Pill('Quản trị', color: c.accent)]),
+            title: Row(children: [const BrandLockup(height: 26), const SizedBox(width: 8), Pill('Quản trị', color: c.accent)]),
             actions: [TextButton.icon(onPressed: () => context.go('/'), icon: const Icon(Icons.exit_to_app, size: 18), label: const Text('Mở ứng dụng')), const SizedBox(width: 8)],
           ),
           drawer: context.isDesktop ? null : Drawer(child: menu),

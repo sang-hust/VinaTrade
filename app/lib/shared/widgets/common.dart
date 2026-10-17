@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'brand.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../core/responsive.dart';
@@ -48,17 +49,20 @@ class SectionHeader extends StatelessWidget {
 
 class EmptyState extends StatelessWidget {
   final IconData icon;
+  final EmptyArt? art;
+  final String? title;
   final String message;
   final String? actionLabel;
   final VoidCallback? onAction;
-  const EmptyState({super.key, this.icon = Icons.inbox_outlined, required this.message, this.actionLabel, this.onAction});
+  const EmptyState({super.key, this.icon = Icons.inbox_outlined, this.art, this.title, required this.message, this.actionLabel, this.onAction});
   @override
   Widget build(BuildContext context) => Center(
         child: Padding(
           padding: const EdgeInsets.all(28),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 40, color: context.vn.faint),
+            if (art != null) EmptyIllustration(art!, width: 220).animate().fadeIn(duration: 400.ms).scale(begin: const Offset(0.94, 0.94), curve: Curves.easeOutBack) else Icon(icon, size: 40, color: context.vn.faint),
             const SizedBox(height: 12),
+            if (title != null) Padding(padding: const EdgeInsets.only(bottom: 4), child: Text(title!, textAlign: TextAlign.center, style: TextStyle(color: context.vn.text, fontWeight: FontWeight.w700, fontSize: 16))),
             Text(message, textAlign: TextAlign.center, style: TextStyle(color: context.vn.muted)),
             if (actionLabel != null) ...[const SizedBox(height: 14), FilledButton(onPressed: onAction, child: Text(actionLabel!))],
           ]),
@@ -243,11 +247,11 @@ class AskAiButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.vn;
-    if (compact) return IconButton(onPressed: onPressed, tooltip: label, icon: Icon(Icons.auto_awesome, color: c.ai));
+    if (compact) return IconButton(onPressed: onPressed, tooltip: label, icon: BrandIcon(BrandIcons.askAi, color: c.ai));
     return OutlinedButton.icon(
       onPressed: onPressed,
       style: OutlinedButton.styleFrom(foregroundColor: c.ai, side: BorderSide(color: c.ai), padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
-      icon: const Icon(Icons.auto_awesome, size: 16),
+      icon: BrandIcon(BrandIcons.askAi, size: 17, color: c.ai),
       label: Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
     );
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../shared/widgets/brand.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -55,7 +56,7 @@ class _AlertsPageState extends ConsumerState<AlertsPage> {
               ]),
             ),
             const SizedBox(height: 10),
-            if (items.isEmpty) const EmptyState(icon: Icons.notifications_none, message: 'Chưa có cảnh báo trong nhóm này. Cảnh báo cuối ngày sẽ về sau 15h30 mỗi phiên.'),
+            if (items.isEmpty) const EmptyState(art: EmptyArt.alerts, title: 'Chưa có cảnh báo', message: 'Cảnh báo cuối ngày sẽ về sau 15h30 mỗi phiên. Tạo quy tắc cho mức giá bạn quan tâm.'),
             for (final g in groups.entries) ...[
               Padding(padding: const EdgeInsets.only(top: 8, bottom: 6), child: Text(g.key, style: TextStyle(color: c.faint, fontWeight: FontWeight.w600, fontSize: 12))),
               for (final (i, a) in g.value.indexed) Padding(padding: const EdgeInsets.only(bottom: 8), child: _AlertCard(a, onOpen: () => _open(a)).stagger(context, i, step: 25)),

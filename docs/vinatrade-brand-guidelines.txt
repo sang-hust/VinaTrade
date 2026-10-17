@@ -1,0 +1,36 @@
+VINATRADE — VISUAL IDENTITY / v1.0
+
+IDEA
+A descending entry and rising terminal form one geometric V. The mark suggests observation and forward movement; it does not imply guaranteed performance. Keep the brand calm, measured and legible.
+
+LOGO
+Primary: blue mark with light wordmark on navy. Use the dark-wordmark lockup on white or light backgrounds. The supplied wordmarks are outlined paths, so font installation is not needed to render them.
+Minimum mark size: 16 × 16 px. Minimum horizontal lockup width: 144 px. At smaller widths use the mark alone. Maintain clear space of at least one quarter of the mark's painted width. Do not stretch, rotate, add shadows, or color the mark red/green to reflect stock movement.
+
+TYPE
+Be Vietnam Pro SemiBold is included under the SIL Open Font License. It supports Vietnamese diacritics. The logo uses this face. Recommended app hierarchy: headings 24/32 px, section headings 18/26 px, labels 14/20 px. Use Be Vietnam Pro Regular or Medium for body text when implementing the app; those weights are not included. Use tabular numerals for financial columns where available.
+
+PALETTE
+Background #0B1119; cards #121A25; primary action #2F6FE0; price-up #2FBF71; price-down #F0545A; reference price #F2B33D; AI accent #B9A2FF; primary text #E8EEF5.
+Muted supporting ink #92A3B8. Illustration facets #182B45, #1D3556, #203858, #263C5D and #2A4871 are decorative extensions, not extra market states.
+Use the full palette sparingly: neutral surfaces dominate. Reserve purple for AI, green/red for financial direction, and yellow for reference price. Always accompany market color with signs, arrows or labels. Use dark labels on bright status fills. Validate text contrast in implementation, especially small labels over primary blue.
+
+APP ICON
+1024 × 1024 PNG is full bleed, opaque, without text or baked rounded corners. The mark has a large inset to survive iOS corner masking. The gradient is limited to this app-icon surface, from #0B1119 to #2F6FE0.
+Android foreground: 432 × 432 transparent PNG. Painted bounds x=84..348, y≈98.7..333.3, within the centered 264 × 264 safe zone (x/y=84..348). Background: separate solid #0B1119 432 × 432 PNG. Treat layers as 108 dp resources at xxxhdpi; configure adaptive-icon resources in the app project.
+
+SPLASH
+1080 × 1920 reference screen, opaque navy, blue mark visually centered. In a responsive splash implementation center the mark within the available viewport rather than scaling the entire reference screen.
+
+ICONS
+19 requested concepts. Each SVG has a 24 × 24 viewBox, 1.8 px stroke, round caps and joins, and no filled background. All icons use #E8EEF5 except Ask AI (#B9A2FF). PNG exports: @1x=24 × 24, @2x=48 × 48, @3x=72 × 72. Display at 24 logical pixels; use at least a 44 × 44 logical-pixel touch target. The files are original line drawings in a Lucide-like visual language.
+
+EMPTY STATES
+Three text-free 360 × 280 SVG illustrations with transparent backgrounds and PNG exports at 1x, 2x, 3x. Flat isometric facets, no 3D lighting or gradients. Place on navy or card surfaces.
+Suggested UI copy:
+• Chưa có mã theo dõi — Thêm mã để theo dõi diễn biến thị trường. Action: Thêm mã.
+• Danh mục đang trống — Thêm khoản đầu tư để bắt đầu theo dõi. Action: Thêm khoản đầu tư.
+• Chưa có cảnh báo — Tạo cảnh báo cho mức giá bạn quan tâm. Action: Tạo cảnh báo.
+
+DELIVERY
+vinatrade-asset-manifest.csv lists exact asset filenames, canvas sizes, formats and notes. All SVG files are self-contained. All PNGs use sRGB. Font and its license are in fonts/. Presentation board includes all concepts and color swatches; the ZIP contains the complete deliverable folder.

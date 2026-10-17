@@ -10,6 +10,7 @@ import '../../core/format.dart';
 import '../../core/providers.dart';
 import '../../core/responsive.dart';
 import '../../core/theme.dart';
+import '../../shared/widgets/brand.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/score.dart';
 import '../../shared/widgets/stock_rows.dart';
@@ -77,7 +78,7 @@ class _NoPortfolio extends StatelessWidget {
   final VoidCallback onCreate;
   const _NoPortfolio({required this.onCreate});
   @override
-  Widget build(BuildContext context) => EmptyState(icon: Icons.pie_chart_outline, message: 'Chưa có giao dịch nào. Tạo danh mục rồi thêm giao dịch đầu tiên để theo dõi lãi/lỗ và nhận cảnh báo cắt lỗ.', actionLabel: 'Tạo danh mục', onAction: onCreate);
+  Widget build(BuildContext context) => EmptyState(art: EmptyArt.portfolio, title: 'Danh mục đang trống', message: 'Tạo danh mục rồi thêm giao dịch đầu tiên để theo dõi lãi/lỗ và nhận cảnh báo cắt lỗ.', actionLabel: 'Tạo danh mục', onAction: onCreate);
 }
 
 class _Body extends ConsumerWidget {
@@ -242,7 +243,7 @@ class _Overview extends ConsumerWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Vị thế đang nắm giữ', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
-          if (positions.isEmpty) EmptyState(icon: Icons.inventory_2_outlined, message: 'Chưa có vị thế. Ghi nhận giao dịch mua đầu tiên (đi qua kiểm tra trước khi mua).', actionLabel: 'Ghi nhận giao dịch', onAction: () => _recordTrade(context, ref, id))
+          if (positions.isEmpty) EmptyState(art: EmptyArt.portfolio, title: 'Chưa có vị thế', message: 'Ghi nhận giao dịch mua đầu tiên (đi qua kiểm tra trước khi mua).', actionLabel: 'Ghi nhận giao dịch', onAction: () => _recordTrade(context, ref, id))
           else _Positions(positions: positions, id: id),
         ]),
       ).stagger(context, 5),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../shared/widgets/brand.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,8 +14,8 @@ import '../../core/ws.dart';
 import '../../shared/widgets/common.dart';
 import '../ai/ai_panel.dart';
 
-const _desktopNav = [('/', 'Thị trường', Icons.insights_outlined), ('/analysis', 'Phân tích', Icons.query_stats), ('/watch', 'Theo dõi', Icons.visibility_outlined), ('/portfolio', 'Danh mục', Icons.pie_chart_outline), ('/screener', 'Bộ lọc', Icons.filter_alt_outlined), ('/alerts', 'Cảnh báo', Icons.notifications_none)];
-const _phoneNav = [('/', 'Thị trường', Icons.insights_outlined, Icons.insights), ('/watch', 'Theo dõi', Icons.visibility_outlined, Icons.visibility), ('/alerts', 'Cảnh báo', Icons.notifications_none, Icons.notifications), ('/portfolio', 'Danh mục', Icons.pie_chart_outline, Icons.pie_chart), ('/account', 'Tài khoản', Icons.person_outline, Icons.person)];
+const _desktopNav = [('/', 'Thị trường', BrandIcons.market), ('/analysis', 'Phân tích', BrandIcons.analysis), ('/watch', 'Theo dõi', BrandIcons.watchlist), ('/portfolio', 'Danh mục', BrandIcons.portfolio), ('/screener', 'Bộ lọc', BrandIcons.screener), ('/alerts', 'Cảnh báo', BrandIcons.alerts)];
+const _phoneNav = [('/', 'Thị trường', BrandIcons.market), ('/watch', 'Theo dõi', BrandIcons.watchlist), ('/alerts', 'Cảnh báo', BrandIcons.alerts), ('/portfolio', 'Danh mục', BrandIcons.portfolio), ('/account', 'Tài khoản', BrandIcons.account)];
 
 bool _matches(String location, String path) {
   final p = Uri.parse(location).path;
@@ -54,7 +55,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     final c = context.vn;
     if (session.loading) {
       return Scaffold(body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Container(width: 48, height: 48, decoration: BoxDecoration(color: c.accent, borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.show_chart, color: Colors.white, size: 28)).animate(onPlay: (ctl) => ctl.repeat(reverse: true)).scale(begin: const Offset(0.95, 0.95), end: const Offset(1.05, 1.05), duration: 700.ms),
+        const BrandMark(size: 64).animate(onPlay: (ctl) => ctl.repeat(reverse: true)).scale(begin: const Offset(0.95, 0.95), end: const Offset(1.05, 1.05), duration: 700.ms),
         const SizedBox(height: 14),
         Text('Vinatrade', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: c.text)),
       ])));
@@ -88,8 +89,8 @@ class _AppShellState extends ConsumerState<AppShell> {
         destinations: [
           for (final n in _phoneNav)
             NavigationDestination(
-              icon: n.$1 == '/alerts' && unread > 0 ? Badge(label: Text('$unread'), child: Icon(n.$3)) : Icon(n.$3),
-              selectedIcon: n.$1 == '/alerts' && unread > 0 ? Badge(label: Text('$unread'), child: Icon(n.$4)) : Icon(n.$4),
+              icon: n.$1 == '/alerts' && unread > 0 ? Badge(label: Text('$unread'), child: BrandIcon(n.$3, color: context.vn.muted)) : BrandIcon(n.$3, color: context.vn.muted),
+              selectedIcon: n.$1 == '/alerts' && unread > 0 ? Badge(label: Text('$unread'), child: BrandIcon(n.$3, color: context.vn.accent)) : BrandIcon(n.$3, color: context.vn.accent),
               label: n.$2,
             ),
         ],
@@ -128,8 +129,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                         onTap: () => context.go('/'),
                         borderRadius: BorderRadius.circular(8),
                         child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          Container(width: 30, height: 30, decoration: BoxDecoration(color: c.accent, borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.show_chart, color: Colors.white, size: 18)),
-                          if (!compact) ...[const SizedBox(width: 8), Text('Vinatrade', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: c.text))],
+                          if (compact) const BrandMark(size: 30) else const BrandLockup(height: 30),
                         ]),
                       ),
                       SizedBox(width: compact ? 10 : 20),
@@ -165,11 +165,11 @@ class _AppShellState extends ConsumerState<AppShell> {
                         ),
                       const SizedBox(width: 6),
                       AskAiButton(compact: compact, onPressed: () => openAi({'screen': 'market'})),
-                      IconButton(tooltip: 'Cảnh báo', onPressed: () => context.go('/alerts'), icon: unread > 0 ? Badge(label: Text('$unread'), child: const Icon(Icons.notifications_none)) : const Icon(Icons.notifications_none)),
+                      IconButton(tooltip: 'Cảnh báo', onPressed: () => context.go('/alerts'), icon: unread > 0 ? Badge(label: Text('$unread'), child: BrandIcon(BrandIcons.alerts, color: c.text)) : BrandIcon(BrandIcons.alerts, color: c.text)),
                       if (s.isAdmin)
                         (compact
-                            ? IconButton(tooltip: 'Quản trị', onPressed: () => context.go('/admin/overview'), icon: const Icon(Icons.admin_panel_settings_outlined))
-                            : TextButton.icon(onPressed: () => context.go('/admin/overview'), icon: const Icon(Icons.admin_panel_settings_outlined, size: 18), label: const Text('Quản trị'))),
+                            ? IconButton(tooltip: 'Quản trị', onPressed: () => context.go('/admin/overview'), icon: BrandIcon(BrandIcons.admin, color: c.text))
+                            : TextButton.icon(onPressed: () => context.go('/admin/overview'), icon: BrandIcon(BrandIcons.admin, size: 18, color: c.link), label: const Text('Quản trị'))),
                       const SizedBox(width: 4),
                       Tooltip(
                         message: 'Tài khoản',
@@ -209,7 +209,7 @@ class _AppShellState extends ConsumerState<AppShell> {
 
 class _NavItem extends StatelessWidget {
   final String label;
-  final IconData icon;
+  final BrandIcons icon;
   final bool active, compact;
   final VoidCallback onTap;
   const _NavItem({required this.label, required this.icon, required this.active, required this.compact, required this.onTap});
@@ -225,7 +225,7 @@ class _NavItem extends StatelessWidget {
           duration: 200.ms,
           padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 12, vertical: 8),
           decoration: BoxDecoration(color: active ? c.surface2 : Colors.transparent, borderRadius: BorderRadius.circular(8), border: Border(bottom: BorderSide(color: active ? c.accent : Colors.transparent, width: 2))),
-          child: Row(children: [Icon(icon, size: 18, color: active ? c.text : c.muted), if (!compact || active) ...[const SizedBox(width: 6), Text(label, style: TextStyle(color: active ? c.text : c.muted, fontWeight: active ? FontWeight.w700 : FontWeight.w500, fontSize: 13.5))]]),
+          child: Row(children: [BrandIcon(icon, size: 19, color: active ? c.text : c.muted), if (!compact || active) ...[const SizedBox(width: 6), Text(label, style: TextStyle(color: active ? c.text : c.muted, fontWeight: active ? FontWeight.w700 : FontWeight.w500, fontSize: 13.5))]]),
         ),
       ),
     );
