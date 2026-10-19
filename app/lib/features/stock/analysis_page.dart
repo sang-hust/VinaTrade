@@ -64,6 +64,7 @@ class _AnalysisPageState extends ConsumerState<AnalysisPage> {
           d = {...d, 'price': live['p'], 'change': live['chg'], 'change_pct': live['chg_pct']};
         }
         final card = _RecommendationCard(d: d, level: level, onLevel: (v) => ref.read(sessionProvider.notifier).updateSettings({'ui_detail': v}), onHorizon: (v) => setState(() => hz = v));
+        final riskCard = _RiskCard(d: d);
         final chart = _ChartSection(d: d, symbol: widget.symbol, tf: tf, onTf: (v) => setState(() => tf = v), level: level);
         final details = _Details(d: d, level: level, symbol: widget.symbol);
         return RefreshIndicator(
@@ -76,9 +77,9 @@ class _AnalysisPageState extends ConsumerState<AnalysisPage> {
                 Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Expanded(flex: 5, child: Column(children: [chart.stagger(context, 1), SizedBox(height: context.gap), details.stagger(context, 2)])),
                   SizedBox(width: context.gap),
-                  SizedBox(width: context.isWide ? 400 : 360, child: card.stagger(context, 1)),
+                  SizedBox(width: context.isWide ? 400 : 360, child: Column(children: [card.stagger(context, 1), SizedBox(height: context.gap), riskCard.stagger(context, 2)])),
                 ])
-              else ...[card.stagger(context, 1), SizedBox(height: context.gap), chart.stagger(context, 2), SizedBox(height: context.gap), details.stagger(context, 3)],
+              else ...[card.stagger(context, 1), SizedBox(height: context.gap), riskCard.stagger(context, 2), SizedBox(height: context.gap), chart.stagger(context, 3), SizedBox(height: context.gap), details.stagger(context, 4)],
               const DisclaimerText(),
               Text('Số liệu phiên ${d['date'] != null ? Fmt.date(Fmt.parseDate(d['date']), year: true) : '—'}', style: TextStyle(color: c.faint, fontSize: 11.5)),
             ]),
@@ -192,7 +193,8 @@ class _RecommendationCard extends StatelessWidget {
         if (d['ai_conclusion'] == true) Padding(padding: const EdgeInsets.only(top: 4), child: Row(children: [Icon(Icons.auto_awesome, size: 12, color: c.ai), const SizedBox(width: 4), Text('AI tổng hợp từ số liệu hệ thống', style: TextStyle(color: c.ai, fontSize: 11))])),
         const SizedBox(height: 10),
         Wrap(spacing: 6, runSpacing: 6, children: [
-          if (risk.isNotEmpty) Pill('Rủi ro DN ${Fmt.score(asNum(risk['score']))} · ${risk['level_vi'] ?? ''}', color: c.levelColor(risk['level']?.toString()), icon: Icons.shield_outlined),
+          if (asMap(d['risk']).isNotEmpty) Pill('Rủi ro ${(asMap(d['risk'])['level_vi'] ?? '').toString().toLowerCase()} · ${Fmt.score(asNum(asMap(d['risk'])['score']))}/100', color: c.levelColor(asMap(d['risk'])['level']?.toString()), icon: Icons.shield_outlined)
+          else if (risk.isNotEmpty) Pill('Rủi ro DN ${Fmt.score(asNum(risk['score']))} · ${risk['level_vi'] ?? ''}', color: c.levelColor(risk['level']?.toString()), icon: Icons.shield_outlined),
           if (d['is_chase'] == true) Pill('Mua đuổi', color: c.ref, icon: Icons.trending_up) else Pill('Không mua đuổi', color: c.up, icon: Icons.check),
           NextEventChip(ev: asMap(asMap(d['events'])['next'])),
           if (rel['stand_aside'] == true) Pill('Đứng ngoài', color: c.down),
@@ -511,6 +513,48 @@ class _Financials extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+}
+
+
+/// Total risk (6 components) — the basis of "gợi ý ít rủi ro nhất". Always visible at every detail level (BR-20).
+class _RiskCard extends StatelessWidget {
+  final Map<String, dynamic> d;
+  const _RiskCard({required this.d});
+  @override
+  Widget build(BuildContext context) {
+    final c = context.vn;
+    final risk = asMap(d['risk']);
+    if (risk.isEmpty) return const SizedBox.shrink();
+    final comps = asList(risk['components']);
+    final level = risk['level']?.toString();
+    Color colFor(num v) => v < 35 ? c.up : (v < 60 ? c.ref : c.downText);
+    return AppCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text('Rủi ro tổng hợp', style: Theme.of(context).textTheme.titleMedium)),
+          Pill('${risk['level_vi'] ?? ''} · ${Fmt.score(asNum(risk['score']))}/100', color: c.levelColor(level), icon: Icons.shield_outlined),
+        ]),
+        const SizedBox(height: 4),
+        Text(risk['text']?.toString() ?? '', style: TextStyle(color: c.muted, fontSize: 12.5)),
+        if (risk['downgraded'] == true) Padding(padding: const EdgeInsets.only(top: 4), child: Text('Rủi ro cao nên khuyến nghị đã hạ một bậc.', style: TextStyle(color: c.downText, fontSize: 12.5, fontWeight: FontWeight.w600))),
+        const SizedBox(height: 10),
+        for (final x in comps)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                SizedBox(width: 128, child: Text(x['label'].toString(), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+                Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: ((asNum(x['score']) ?? 0) / 100).clamp(0.0, 1.0), minHeight: 8, backgroundColor: c.surface2, color: colFor(asNum(x['score']) ?? 0)))),
+                SizedBox(width: 44, child: Text(Fmt.score(asNum(x['score'])), textAlign: TextAlign.right, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: colFor(asNum(x['score']) ?? 0), fontFeatures: const [FontFeature.tabularFigures()]))),
+                SizedBox(width: 34, child: Text('${x['weight']}%', textAlign: TextAlign.right, style: TextStyle(fontSize: 11, color: c.faint))),
+              ]),
+              Padding(padding: const EdgeInsets.only(left: 128, top: 2), child: Text(x['note']?.toString() ?? '', style: TextStyle(color: c.muted, fontSize: 11.5), maxLines: 2, overflow: TextOverflow.ellipsis)),
+            ]),
+          ),
+        Text(risk['personalized'] == true ? 'Tương quan tính theo các mã bạn đang nắm giữ. Cột phải là trọng số.' : 'Tương quan tạm tính theo beta với VN-Index; sẽ tính theo danh mục khi bạn ghi nhận giao dịch. Cột phải là trọng số.', style: TextStyle(color: c.faint, fontSize: 11)),
+      ]),
     );
   }
 }

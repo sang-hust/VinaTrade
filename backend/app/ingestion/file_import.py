@@ -145,7 +145,7 @@ async def preview_file(db: AsyncSession, raw: bytes, filename: str) -> dict:
     dup = [r for r in ok_rows if (r[0], r[1]) in existing]
     mismatches = [{"symbol": r[0], "date": r[1].isoformat(), "file": r[5], "api": existing[(r[0], r[1])]} for r in dup if abs(r[5] / existing[(r[0], r[1])] - 1) > 0.005]
     import_id = uuid.uuid4().hex
-    _PENDING[import_id] = {"rows": ok_rows, "filename": filename, "errors": errors}
+    _PENDING[import_id] = {"rows": ok_rows, "filename": filename, "errors": errors, "mismatches": mismatches}
     return {"import_id": import_id, "filename": filename, "columns": {k: header[i] for k, i in cols.items()}, "unit": "nghìn đồng → ×1000" if mult > 1 else "đồng",
             "preview": [{"symbol": r[0], "date": r[1].isoformat(), "open": r[2], "high": r[3], "low": r[4], "close": r[5], "volume": r[6]} for r in ok_rows[:20]],
             "rows_ok": len(ok_rows), "rows_error": len(errors), "errors": errors[:100], "new_sessions": len(ok_rows) - len(dup), "duplicate_sessions": len(dup),
@@ -163,7 +163,8 @@ async def commit_import(db: AsyncSession, import_id: str, mode: str, by: str) ->
     for s, candles in by_sym.items():
         n += await upsert_candles(db, s, candles, "FILE", overwrite=(mode == "OVERWRITE"))
     job = JobRun(name="price_file_import", status="DONE", finished_at=datetime.now().astimezone(), triggered_by=f"admin:{by}",
-                 summary=f"{p['filename']}: {n} dòng, {len(p['errors'])} lỗi, {mode}", meta={"file": p["filename"], "user": by, "rows_ok": n, "rows_err": len(p["errors"]), "errors": p["errors"][:100], "mode": mode, "symbols": sorted(by_sym)})
+                 summary=f"{p['filename']}: {n} dòng, {len(p['errors'])} lỗi, {mode}", meta={"file": p["filename"], "user": by, "rows_ok": n, "rows_err": len(p["errors"]), "errors": p["errors"][:100], "mode": mode, "symbols": sorted(by_sym),
+                       "mismatches": len(p.get("mismatches") or [])})
     db.add(job)
     await db.flush()
     return {"rows": n, "symbols": sorted(by_sym), "mode": mode, "job_id": job.id}

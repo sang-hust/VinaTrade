@@ -65,6 +65,9 @@ async def overview(user: CurrentUser, db: DB, horizon: str = "MID"):
     sigs = (await db.execute(select(Signal).where(Signal.trade_date == d, Signal.horizon == horizon).order_by(desc(Signal.score)))).scalars().all() if d else []
     stocks = {s.symbol: s for s in (await db.execute(select(Stock).where(Stock.symbol.in_({x.symbol for x in sigs})))).scalars()} if sigs else {}
     snaps = {s.symbol: s for s in (await db.execute(select(StockSnapshot).where(StockSnapshot.symbol.in_({x.symbol for x in sigs})))).scalars()} if sigs else {}
+    # least-risky first: rank by the snapshot's risk-adjusted score, then the signal score
+    adj_col = f"score_adj_{horizon.lower()}"
+    sigs.sort(key=lambda x: (-(getattr(snaps.get(x.symbol), adj_col, None) or 0), -(x.score or 0)))
 
     def sig_item(s: Signal) -> dict:
         sn = snaps.get(s.symbol)
@@ -73,7 +76,8 @@ async def overview(user: CurrentUser, db: DB, horizon: str = "MID"):
                 "strategy_code": s.strategy_code, "title": s.title, "event": s.title.split("] ", 1)[-1].replace(f"{s.symbol} ", "", 1),
                 "entry_low": price_int(s.entry_low), "entry_high": price_int(s.entry_high), "stop_loss": price_int(s.stop_loss), "take_profit_1": price_int(s.take_profit_1),
                 "reliability_pct": clean(s.reliability_pct), "reliability_samples": s.reliability_samples, "stand_aside": s.stand_aside, "is_chase": s.is_chase,
-                "risk_score": clean(s.risk_score), "trend3": "".join({"UP": "▲", "FLAT": "▬", "DOWN": "▼"}.get(getattr(sn, k, None) or "FLAT", "▬") for k in ("trend_short", "trend_mid", "trend_long")) if sn else None}
+                "risk_score": clean(s.risk_score), "risk_total": clean(sn.risk_total) if sn else None, "risk_total_level": sn.risk_total_level if sn else None,
+                "risk_total_vi": RISK_VI_LBL.get(sn.risk_total_level) if sn else None, "score_adj": clean(getattr(sn, adj_col, None)) if sn else None, "trend3": "".join({"UP": "▲", "FLAT": "▬", "DOWN": "▼"}.get(getattr(sn, k, None) or "FLAT", "▬") for k in ("trend_short", "trend_mid", "trend_long")) if sn else None}
 
     buys = [sig_item(s) for s in sigs if s.signal_type == "BUY" and not s.stand_aside][:8]
     sells = [sig_item(s) for s in sigs if s.signal_type in ("SELL", "TAKE_PROFIT")][:8]
@@ -201,6 +205,38 @@ async def candles(symbol: str, user: CurrentUser, db: DB, tf: str = "1d", days: 
     return {"symbol": sym, "tf": tf, "candles": out, "bases": bases}
 
 
+RISK_VI_LBL = {"LOW": "Thấp", "MEDIUM": "Trung bình", "HIGH": "Cao"}
+
+
+async def _total_risk_block(db, user, sym: str, sn: StockSnapshot, hz: str) -> dict | None:
+    """Six-component total risk for the analysis screen. The correlation component is recomputed against the user's
+    real holdings when they have any (snapshot stores the beta proxy)."""
+    from app.engines.risk import combine_risk, correlation_component, risk_adjusted
+    from app.models import Portfolio, Position
+    from app.services.riskguard import _returns_frame
+
+    if sn.risk_total is None or not sn.risk_components:
+        return None
+    comps = list(sn.risk_components)
+    held = [p for (p,) in (await db.execute(select(Position.symbol).join(Portfolio, Portfolio.id == Position.portfolio_id)
+                                             .where(Portfolio.user_id == user.id, Portfolio.is_paper.is_(False), Position.quantity > 0, Position.symbol != sym))).all()]
+    personal = False
+    if held:
+        rets = await _returns_frame(db, [sym, *held])
+        if not rets.empty and sym in rets.columns:
+            corr = rets.corr()[sym].drop(sym, errors="ignore").dropna()
+            if not corr.empty:
+                top = corr.abs().idxmax()
+                comps = [c if c["key"] != "correlation" else correlation_component(float(corr[top]), sn.beta_60, top) for c in comps]
+                personal = True
+    weights, params = await get_config(db, "risk.score_weights"), await get_config(db, "risk.score_params")
+    res = combine_risk(comps, weights, params)
+    score = getattr(sn, f"score_{hz.lower()}", None)
+    return {**res, "level_vi": RISK_VI_LBL.get(res["level"]), "personalized": personal, "score_adj": risk_adjusted(score, res["score"]),
+            "downgraded": res["score"] >= float((params or {}).get("downgrade_from", 60)),
+            "text": f"Rủi ro {RISK_VI_LBL.get(res['level'], '').lower()} ({res['score']:.0f}/100). Xếp hạng theo cơ hội/rủi ro: {risk_adjusted(score, res['score']) or 0:.0f} điểm."}
+
+
 @router.get("/stocks/{symbol}/analysis")
 async def analysis(symbol: str, user: CurrentUser, db: DB, horizon: str | None = None):
     sym = symbol.upper()
@@ -298,6 +334,7 @@ async def analysis(symbol: str, user: CurrentUser, db: DB, horizon: str | None =
         "reliability": rel,
         "company_risk": {"score": clean(rk.score), "level": rk.level, "level_vi": {"LOW": "Thấp", "MEDIUM": "Trung bình", "HIGH": "Cao"}.get(rk.level), "flags": rk.flags or [],
                          "impact": "Hạ khuyến nghị một bậc" if rk.score >= 60 else None} if rk else None,
+        "risk": await _total_risk_block(db, user, sym, sn, hz),
         "is_chase": sn.is_chase, "gain_from_base_pct": clean(sn.gain_from_base_pct),
         "base": row(base, ["start_date", "end_date", "base_high", "base_low", "depth_pct", "length_days", "tightness_pct", "pattern", "status", "breakout_date", "breakout_vol_ratio"]) if base else None,
         "rally_context": {"rally_count": rl.rally_count, "median_gain_pct": clean(rl.median_gain_pct), "p75_gain_pct": clean(rl.p75_gain_pct), "median_days": clean(rl.median_days),
@@ -400,7 +437,7 @@ async def sectors(user: CurrentUser, db: DB):
 @router.get("/sectors/{code}")
 async def sector_detail(code: str, user: CurrentUser, db: DB, horizon: str = "MID"):
     hz = horizon.upper() if horizon.upper() in HZ else "MID"
-    col = {"SHORT": StockSnapshot.score_short, "LONG": StockSnapshot.score_long}.get(hz, StockSnapshot.score_mid)
+    col = {"SHORT": StockSnapshot.score_adj_short, "LONG": StockSnapshot.score_adj_long}.get(hz, StockSnapshot.score_adj_mid)
     rows = (await db.execute(select(Stock, StockSnapshot).join(StockSnapshot, StockSnapshot.symbol == Stock.symbol).where(Stock.industry_code == code, Stock.is_active).order_by(desc(col).nulls_last()).limit(60))).all()
     hist = (await db.execute(select(SectorScore).where(SectorScore.industry_code == code).order_by(desc(SectorScore.trade_date)).limit(60))).scalars().all()
     return {"code": code, "name": ICB_LV2.get(code, (code,))[0], "stocks": [snapshot_item(sn, st, hz) for st, sn in rows],
@@ -417,9 +454,10 @@ async def calendar(user: CurrentUser, db: DB, from_: date | None = Query(None, a
 
 @router.get("/opportunities")
 async def opportunities(user: CurrentUser, db: DB, horizon: str = "MID", only_buy: bool = False, exclude_high_risk: bool = False, exclude_chase: bool = False,
-                        exchange: str | None = None, limit: int = Query(50, le=200), page: int = 1):
+                        exchange: str | None = None, limit: int = Query(50, le=200), page: int = 1, sort: str = "risk_adjusted"):
     hz = horizon.upper() if horizon.upper() in HZ else "MID"
     col = {"SHORT": StockSnapshot.score_short, "LONG": StockSnapshot.score_long}.get(hz, StockSnapshot.score_mid)
+    acol = {"SHORT": StockSnapshot.score_adj_short, "LONG": StockSnapshot.score_adj_long}.get(hz, StockSnapshot.score_adj_mid)
     rcol = {"SHORT": StockSnapshot.rating_short, "LONG": StockSnapshot.rating_long}.get(hz, StockSnapshot.rating_mid)
     min_liq = float(await get_config(db, "market.min_liquidity") or 0)
     stmt = select(Stock, StockSnapshot).join(StockSnapshot, StockSnapshot.symbol == Stock.symbol).where(Stock.is_active, StockSnapshot.value_ma20 >= min_liq, col.isnot(None))
@@ -432,8 +470,9 @@ async def opportunities(user: CurrentUser, db: DB, horizon: str = "MID", only_bu
     if exchange:
         stmt = stmt.where(Stock.exchange == exchange.upper())
     total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = (await db.execute(stmt.order_by(desc(col)).offset((page - 1) * limit).limit(limit))).all()
-    return {"items": [snapshot_item(sn, st, hz) for st, sn in rows], "total": total, "page": page, "size": limit, "horizon": hz}
+    order = desc(col) if sort == "score" else desc(acol).nulls_last()
+    rows = (await db.execute(stmt.order_by(order, desc(col)).offset((page - 1) * limit).limit(limit))).all()
+    return {"items": [snapshot_item(sn, st, hz) for st, sn in rows], "total": total, "page": page, "size": limit, "horizon": hz, "sort": sort}
 
 
 @router.get("/signals")
@@ -451,7 +490,10 @@ async def signals(user: CurrentUser, db: DB, type: str | None = None, horizon: s
     if symbol:
         stmt = stmt.where(Signal.symbol == symbol.upper())
     rows = (await db.execute(stmt.order_by(desc(Signal.trade_date), desc(Signal.score)).limit(limit))).scalars().all()
-    return [{**row(s, ["id", "symbol", "trade_date", "strategy_code", "signal_type", "horizon", "rating", "score", "price", "entry_low", "entry_high", "stop_loss", "take_profit_1", "take_profit_2", "risk_reward", "priority", "reliability_pct", "reliability_samples", "stand_aside", "is_chase", "risk_score", "title", "reasons", "facts"]), "rating_vi": RATING_VI.get(s.rating)} for s in rows]
+    snaps = {x.symbol: x for x in (await db.execute(select(StockSnapshot).where(StockSnapshot.symbol.in_({s.symbol for s in rows})))).scalars()} if rows else {}
+    return [{**row(s, ["id", "symbol", "trade_date", "strategy_code", "signal_type", "horizon", "rating", "score", "price", "entry_low", "entry_high", "stop_loss", "take_profit_1", "take_profit_2", "risk_reward", "priority", "reliability_pct", "reliability_samples", "stand_aside", "is_chase", "risk_score", "title", "reasons", "facts"]),
+             "rating_vi": RATING_VI.get(s.rating), "risk_total": clean(snaps[s.symbol].risk_total) if s.symbol in snaps else None, "risk_total_level": snaps[s.symbol].risk_total_level if s.symbol in snaps else None,
+             "risk_total_vi": RISK_VI_LBL.get(snaps[s.symbol].risk_total_level) if s.symbol in snaps else None} for s in rows]
 
 
 @router.get("/signals/{signal_id}")

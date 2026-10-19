@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     universe_limit: int = 0
     media_root: str = "media"
 
+    # Admin console (UI spec 15): 2FA mandatory, 30-minute idle lock. None → required unless DEBUG.
+    admin_require_2fa: bool | None = None
+    admin_idle_minutes: int = 30
     access_token_minutes: int = 60 * 12
     refresh_token_days: int = 30
     max_devices: int = 3

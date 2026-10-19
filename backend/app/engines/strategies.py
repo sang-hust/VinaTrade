@@ -19,6 +19,17 @@ DEFAULT_PARAMS = {
     "chase_mid": 20,
 }
 
+# Which DEFAULT_PARAMS keys each strategy reads (A03 panel "sửa tham số"). Shared keys are edited under the first owner.
+STRATEGY_PARAM_KEYS: dict[str, list[str]] = {
+    "BREAKOUT_BASE": ["breakout_vol_ratio", "chase_mid"],
+    "BREAKOUT_52W": ["breakout_vol_ratio", "chase_short"],
+    "MA50_PULLBACK": ["pullback_rsi_max", "pullback_dist_ma50"],
+    "BREAK_MA50": ["breakout_vol_ratio"],
+    "DISTRIBUTION": ["distribution_days"],
+    "TAKE_PROFIT": ["take_profit_ratio", "take_profit_rsi", "take_profit_dist_ma50"],
+    "TIGHT_BASE": ["tight_base_tightness", "tight_base_vol"],
+}
+
 STRATEGIES = [
     # code, name, signal_type, horizon, description
     ("BREAKOUT_BASE", "Phá nền kèm khối lượng", "BUY", "MID", "Đóng cửa vượt đỉnh nền ≥ 25 phiên với KL ≥ 1,5 lần TB20"),

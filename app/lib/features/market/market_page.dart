@@ -129,7 +129,7 @@ class _Signals extends ConsumerWidget {
         Padding(padding: const EdgeInsets.only(top: 12, bottom: 6), child: Row(children: [StatusDot(color), const SizedBox(width: 8), Text(title, style: TextStyle(fontWeight: FontWeight.w700, color: c.text)), const SizedBox(width: 6), Text('${rows.length}', style: TextStyle(color: c.faint))])),
         StockTable(
           rows: rows, subtitleKey: 'event', minWidth: 760,
-          columns: const [StockCol('price', 'Giá (VNĐ)', width: 90, build: priceCell), StockCol('change_pct', '+/−', width: 70, build: changeCell), StockCol('trend3', 'N·T·D', width: 70, build: _trend), StockCol('score', 'Điểm', width: 110, build: _score), StockCol('rating', 'Khuyến nghị', width: 120, build: _rating), StockCol('rel', 'Độ tin cậy', width: 110, build: _rel)],
+          columns: const [StockCol('price', 'Giá (VNĐ)', width: 90, build: priceCell), StockCol('change_pct', '+/−', width: 70, build: changeCell), StockCol('trend3', 'N·T·D', width: 70, build: _trend), StockCol('score', 'Điểm', width: 110, build: _score), StockCol('rating', 'Khuyến nghị', width: 120, build: _rating), StockCol('risk', 'Rủi ro', width: 96, build: riskCell), StockCol('rel', 'Độ tin cậy', width: 110, build: _rel)],
           trailing: showBuy ? (ctx, r) => BuyButton(onPressed: () => showPretradeSheet(ctx, symbol: r['symbol'], horizon: hz)) : null,
         ),
       ]);

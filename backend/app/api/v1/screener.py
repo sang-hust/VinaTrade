@@ -36,7 +36,8 @@ class ScreenerIn(BaseModel):
 
 
 def _col(hz: str):
-    return {"SHORT": StockSnapshot.score_short, "LONG": StockSnapshot.score_long}.get(hz, StockSnapshot.score_mid)
+    """Default ordering: risk-adjusted score (opportunity × (1 − risk/200)) — the least-risky pick first."""
+    return {"SHORT": StockSnapshot.score_adj_short, "LONG": StockSnapshot.score_adj_long}.get(hz, StockSnapshot.score_adj_mid)
 
 
 async def _resolve(db, body: RunIn | ScreenerIn) -> tuple[dict, dict | None]:
@@ -74,7 +75,7 @@ async def run(body: RunIn, user: CurrentUser, db: DB):
     hz = body.horizon.upper() if body.horizon.upper() in ("SHORT", "MID", "LONG") else "MID"
     try:
         clause = to_sql(dsl)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise bad_request("DSL_INVALID", str(e)) from e
     stmt = select(Stock, StockSnapshot).join(StockSnapshot, StockSnapshot.symbol == Stock.symbol).where(Stock.is_active, clause)
     total = await db.scalar(select(func.count()).select_from(stmt.subquery()))

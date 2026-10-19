@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.core.db import session_scope
 from app.core.vntime import VN_TZ, is_market_open, is_trading_day, today_vn
 from app.models import ActionItem, RefreshToken, User
-from app.services.jobs import run_job
+from app.services.jobs import backup_database, run_job
 
 log = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler(timezone=VN_TZ)
@@ -99,19 +99,40 @@ async def run_named(name: str, triggered_by: str = "admin"):
         from app.ingestion.fundamentals import sync_fundamentals
 
         return await run_job("fundamentals_sync", lambda db: sync_fundamentals(db), triggered_by)
+    if name == "backup":
+        return await run_job("backup", backup_database, triggered_by)
+    if name == "strategy_backtest":
+        from app.tasks.backfill import backfill
+
+        return await run_job("strategy_backtest", lambda db: backfill(db, years=5), triggered_by)
+    if name.startswith("strategy_backtest:"):
+        from app.tasks.backfill import backtest_draft
+
+        code = name.split(":", 1)[1]
+        return await run_job(name, lambda db: backtest_draft(db, code), triggered_by)
     raise ValueError(f"unknown job {name}")
+
+
+# (id, label, trigger, coroutine function, args). Functions MUST be coroutine functions: APScheduler only awaits those —
+# a `lambda: run_job(...)` returns an un-awaited coroutine and the job silently never runs.
+JOBS: list[tuple[str, str, object, object, list]] = [
+    ("eod", "Chuỗi xử lý cuối ngày", CronTrigger(day_of_week="mon-fri", hour=15, minute=5), _eod, []),
+    ("dispatch", "Gửi cảnh báo chờ", IntervalTrigger(minutes=1), run_job, ["dispatch", _dispatch]),
+    ("intraday", "Quét trong phiên (5 phút)", IntervalTrigger(minutes=5), run_job, ["intraday", _intraday]),
+    ("maintenance", "Hết hạn tài khoản, dọn token", CronTrigger(hour=0, minute=5), run_job, ["maintenance", _maintenance]),
+    ("coach_weekly", "Huấn luyện viên AI hằng tuần", CronTrigger(day_of_week="sat", hour=9, minute=0), run_job, ["coach_weekly", _weekly_coach]),
+    ("fundamentals_sync", "Cập nhật BCTC", CronTrigger(day_of_week="mon-fri", hour=18, minute=0), run_named, ["fundamentals_sync", "scheduler"]),
+    ("news_sync", "Lấy tin tức RSS + AI chấm cảm xúc (30 phút)", CronTrigger(hour="6-22", minute="5,35"), run_job, ["news_sync", _news]),
+    ("backup", "Sao lưu cơ sở dữ liệu", CronTrigger(hour=1, minute=30), run_job, ["backup", backup_database]),
+    ("strategy_backtest", "Backtest toàn bộ chiến lược", CronTrigger(day_of_week="sun", hour=2, minute=0), run_named, ["strategy_backtest", "scheduler"]),
+]
 
 
 def start():
     if not settings.scheduler_enabled or scheduler.running:
         return
-    scheduler.add_job(_eod, CronTrigger(day_of_week="mon-fri", hour=15, minute=5), id="eod", name="Chuỗi xử lý cuối ngày", replace_existing=True, misfire_grace_time=3600)
-    scheduler.add_job(lambda: run_job("dispatch", _dispatch), IntervalTrigger(minutes=1), id="dispatch", name="Gửi cảnh báo chờ", replace_existing=True)
-    scheduler.add_job(lambda: run_job("intraday", _intraday), IntervalTrigger(minutes=5), id="intraday", name="Quét trong phiên (5 phút)", replace_existing=True)
-    scheduler.add_job(lambda: run_job("maintenance", _maintenance), CronTrigger(hour=0, minute=5), id="maintenance", name="Hết hạn tài khoản, dọn token", replace_existing=True)
-    scheduler.add_job(lambda: run_job("coach_weekly", _weekly_coach), CronTrigger(day_of_week="sat", hour=9, minute=0), id="coach_weekly", name="Huấn luyện viên AI hằng tuần", replace_existing=True)
-    scheduler.add_job(lambda: run_named("fundamentals_sync", "scheduler"), CronTrigger(day_of_week="mon-fri", hour=18, minute=0), id="fundamentals_sync", name="Cập nhật BCTC", replace_existing=True, misfire_grace_time=3600)
-    scheduler.add_job(lambda: run_job("news_sync", _news), CronTrigger(hour="6-22", minute="5,35"), id="news_sync", name="Lấy tin tức RSS + AI chấm cảm xúc (30 phút)", replace_existing=True)
+    for job_id, name, trigger, fn, args in JOBS:
+        scheduler.add_job(fn, trigger, args=args, id=job_id, name=name, replace_existing=True, misfire_grace_time=3600 if isinstance(trigger, CronTrigger) else None)
     scheduler.start()
     log.info("scheduler started")
 

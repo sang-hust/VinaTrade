@@ -1,5 +1,7 @@
 """Unit tests for pure engines (no database)."""
 
+from datetime import date
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -12,7 +14,6 @@ from app.engines.risk import PretradeInput, company_risk, guard_decision, pretra
 from app.engines.scoring import composite, rating_for, tech_components, trade_plan
 from app.screener.dsl import DslError, describe, evaluate, validate
 from app.screener.presets import DEFAULT_FORM, build_dsl, form_to_rules
-from datetime import date
 
 
 def _df(n=400, seed=1, start=50000.0):
@@ -140,3 +141,39 @@ def test_form_to_dsl():
     dsl = build_dsl([{"field": "ma50_slope", "op": ">", "value": 0}], {"trend": "UP"}, "MID")
     validate(dsl)
     assert any(r["field"] == "trend_state" for r in dsl["all"]) and any(r["field"] == "ma50_slope" for r in dsl["all"])
+
+
+
+def test_scheduler_jobs_are_awaitable():
+    """Regression: a lambda returning a coroutine is never awaited by APScheduler (alerts/intraday silently never ran)."""
+    import inspect
+
+    from app.tasks.scheduler import JOBS
+
+    assert {j[0] for j in JOBS} >= {"eod", "dispatch", "intraday", "news_sync", "backup"}
+    for job_id, _, _, fn, _ in JOBS:
+        assert inspect.iscoroutinefunction(fn), job_id
+
+
+def test_total_risk_components_and_ranking():
+    from app.engines.risk import DEFAULT_RISK_WEIGHTS, combine_risk, risk_adjusted, total_risk
+
+    calm = total_risk({"price": 50000, "atr14": 750, "drawdown_12m_pct": 12, "value_ma20": 50e9, "min_liquidity_vnd": 5e9, "company_risk": 10, "gain_20d_pct": 4,
+                       "ceiling_streak": 0, "vol_ratio": 1.1, "free_float_pct": 45, "news_count_7d": 3, "beta_60": 0.9})
+    hot = total_risk({"price": 8000, "atr14": 560, "drawdown_12m_pct": 65, "value_ma20": 1.2e9, "min_liquidity_vnd": 5e9, "company_risk": 70, "gain_20d_pct": 62,
+                      "ceiling_streak": 5, "vol_ratio": 4.2, "free_float_pct": 12, "news_count_7d": 0, "earnings_in_days": 3, "beta_60": 1.8})
+    assert calm["level"] == "LOW" and calm["score"] < 25
+    assert hot["level"] == "HIGH" and hot["score"] > 75
+    keys = [c["key"] for c in hot["components"]]
+    assert keys == ["volatility", "liquidity", "company", "manipulation", "event", "correlation"]
+    assert all(0 <= c["score"] <= 100 and c["note"] for c in hot["components"])
+    assert next(c for c in hot["components"] if c["key"] == "manipulation")["score"] == 100
+    assert next(c for c in calm["components"] if c["key"] == "event")["score"] == 0
+    # holdings correlation overrides the beta proxy
+    corr = total_risk({"price": 50000, "atr14": 750, "max_corr": 0.85, "max_corr_symbol": "HPG"})
+    assert next(c for c in corr["components"] if c["key"] == "correlation")["score"] == 100
+    # weights change the total but not the component scores; ranking prefers 70/20 over 85/60
+    heavy = combine_risk(hot["components"], {**DEFAULT_RISK_WEIGHTS, "company": 60}, None)
+    assert heavy["score"] != hot["score"]
+    assert risk_adjusted(70, 20) > risk_adjusted(85, 60)
+    assert risk_adjusted(None, 10) is None

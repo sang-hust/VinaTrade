@@ -131,6 +131,7 @@ class UserDevice(Base):
     name: Mapped[str | None] = mapped_column(String(120))
     push_token: Mapped[str | None] = mapped_column(String(512))
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    admin_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # last admin-console request (30-minute idle lock, UI 15)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

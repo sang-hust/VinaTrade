@@ -13,6 +13,7 @@ Tài liệu chỉ là tham khảo; hệ thống đi theo khuôn của Vinaguide 
 
 - Mọi thay đổi CSDL qua Alembic (`cd backend && .venv/bin/alembic revision --autogenerate -m "..."`). Không sửa migration đã deploy.
 - Giá và tiền: API trả **số nguyên đồng**; app định dạng (`128.500 VNĐ`, `+2.000 (+1,58%)`, dấu trừ thật). Chỉ số 2 số lẻ.
+- Gợi ý ít rủi ro nhất: mọi danh sách xếp theo `score_adj = điểm × (1 − risk_total/200)`; `risk_total` 6 thành phần (`engines/risk.py: total_risk`, bước `eod.risk_total`), trọng số/ngưỡng ở `risk.score_weights`, `risk.score_params`. Khối rủi ro luôn hiện ở mọi mức chi tiết.
 - Tên khuyến nghị cố định: ≥80 Mua mạnh · 65–79 Tích lũy · 50–64 Nắm giữ · 35–49 Giảm tỷ trọng · <35 Bán (`engines/scoring.py`).
 - Mọi nút Mua đi qua Kiểm tra trước khi mua (`POST /pretrade-check`); backend từ chối lệnh mua không có `pretrade_check_id` gần đây (`PRETRADE_REQUIRED`).
 - Mức chi tiết giao diện chỉ ẩn số liệu phụ; cảnh báo rủi ro, dải cầu dao, mục Đỏ, nhãn mua đuổi, câu miễn trừ luôn hiện (BR-20).

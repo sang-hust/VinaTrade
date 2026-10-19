@@ -50,6 +50,10 @@ railway variables \
   --set BOOTSTRAP_DATA=false
 ```
 
+Trang quản trị (UI 15): khi `DEBUG=false`, Admin **bắt buộc bật xác thực 2 lớp** mới vào được `/admin` (màn quản trị tự hiện bước quét mã QR);
+phiên quản trị khóa sau 30 phút không thao tác, nhập lại mật khẩu để mở. Đổi bằng `ADMIN_REQUIRE_2FA=false` / `ADMIN_IDLE_MINUTES=30`.
+Tác vụ `backup` (01:30) chạy `pg_dump` vào `media/backups/` (Dockerfile đã cài `postgresql-client`); Railway Postgres vẫn có snapshot riêng.
+
 `ADMIN_PASSWORD` chỉ dùng khi tạo admin lần đầu. Nếu đã chép dữ liệu ở bước 2, mật khẩu admin là mật khẩu trên máy local — đổi trong app.
 
 ## 4. Deploy

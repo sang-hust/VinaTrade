@@ -224,7 +224,7 @@ class _Overview extends ConsumerWidget {
     ];
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       if (pf['is_paper'] == true) Padding(padding: const EdgeInsets.only(bottom: 8), child: Pill('Tiền ảo — không tính vào cầu dao và tỷ trọng', color: c.ai, dashed: true)),
-      if (context.isPhone) Column(children: [for (final (i, t) in kpis.indexed) Padding(padding: const EdgeInsets.only(bottom: 8), child: t.stagger(context, i))]) else Row(children: [for (final (i, t) in kpis.indexed) Expanded(child: Padding(padding: EdgeInsets.only(right: i < 3 ? 12 : 0), child: t.stagger(context, i)))]),
+      if (context.isPhone) Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [for (final (i, t) in kpis.indexed) Padding(padding: const EdgeInsets.only(bottom: 8), child: t.stagger(context, i))]) else Row(children: [for (final (i, t) in kpis.indexed) Expanded(child: Padding(padding: EdgeInsets.only(right: i < 3 ? 12 : 0), child: t.stagger(context, i)))]),
       SizedBox(height: context.gap),
       AppCard(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

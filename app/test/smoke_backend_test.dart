@@ -89,6 +89,7 @@ void main() {
     final router = container.read(routerProvider);
     router.go('/stocks/FPT');
     await _wait(tester, find.text('Kế hoạch giao dịch'), seconds: 20);
+    expect(find.text('Rủi ro tổng hợp'), findsOneWidget, reason: 'khối rủi ro tổng hợp phải luôn hiện');
     expect(find.text('Vì sao có khuyến nghị'), findsOneWidget);
 
     // Screener
@@ -127,6 +128,22 @@ void main() {
     router.go('/admin/overview');
     await _wait(tester, find.text('Chuỗi xử lý cuối ngày'), seconds: 20);
     expect(find.text('Nguồn dữ liệu'), findsWidgets);
+    expect(find.text('Xuất báo cáo vận hành'), findsOneWidget);
+    expect(find.text('Lấy giá đóng cửa'), findsOneWidget); // Vietnamese step labels
+    // Every admin screen (A02–A10) renders against real data without exceptions.
+    for (final (section, marker) in [('users', 'Chờ duyệt'), ('strategies', 'Trọng số điểm tổng hợp'), ('jobs', 'Tác vụ nền'), ('performance', 'Theo khuyến nghị'),
+                                     ('config', 'Ngưỡng xếp loại khuyến nghị'), ('risk', 'Danh sách mã cho vay ký quỹ'), ('broadcasts', 'Soạn thông báo'), ('audit', 'Trước → sau'), ('ai', 'Theo tác vụ')]) {
+      router.go('/admin/$section');
+      await _wait(tester, find.textContaining(marker), seconds: 25);
+      await _settle(tester, frames: 5);
+      expect(tester.takeException(), isNull, reason: 'lỗi ở /admin/$section');
+      expect(find.byType(ErrorBox), findsNothing, reason: 'ErrorBox ở /admin/$section');
+    }
+    // Strategy panel opens on row tap and shows parameter fields with units.
+    router.go('/admin/strategies?code=MA50_PULLBACK');
+    await _wait(tester, find.textContaining('RSI tối đa khi hồi về MA50'), seconds: 20);
+    expect(find.text('Lưu bản nháp'), findsOneWidget);
+    expect(tester.takeException(), isNull);
 
     expect(tester.takeException(), isNull);
     await tester.runAsync(() => Future.delayed(const Duration(seconds: 3))); // let in-flight requests finish

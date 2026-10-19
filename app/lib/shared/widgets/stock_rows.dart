@@ -32,7 +32,7 @@ const stdCols = [
   StockCol('rating', 'Khuyến nghị', width: 120, numeric: false, build: _ratingCell),
   StockCol('entry', 'Vùng mua', width: 120, build: _entryCell),
   StockCol('stop_loss', 'Cắt lỗ', width: 80, build: _stopCell),
-  StockCol('risk', 'Rủi ro DN', width: 80, build: _riskCell),
+  StockCol('risk', 'Rủi ro', width: 96, build: riskCell),
 ];
 
 Widget _trendCell(BuildContext ctx, Map<String, dynamic> r) => TrendChips(r['trend3']?.toString());
@@ -40,10 +40,26 @@ Widget _scoreCell(BuildContext ctx, Map<String, dynamic> r) => ScoreGauge(score:
 Widget _ratingCell(BuildContext ctx, Map<String, dynamic> r) => Align(alignment: Alignment.centerLeft, child: RatingChip(r['rating_hz']?.toString() ?? r['rating']?.toString()));
 Widget _entryCell(BuildContext ctx, Map<String, dynamic> r) => Text(r['entry_low'] == null ? Fmt.dash : '${Fmt.price(asNum(r['entry_low']))}–${Fmt.price(asNum(r['entry_high']))}', style: TextStyle(color: ctx.vn.muted, fontSize: 12.5));
 Widget _stopCell(BuildContext ctx, Map<String, dynamic> r) => Text(Fmt.price(asNum(r['stop_loss'])), style: TextStyle(color: ctx.vn.downText, fontSize: 12.5));
-Widget _riskCell(BuildContext ctx, Map<String, dynamic> r) {
-  final s = asNum(r['risk_score']);
+/// Total-risk cell: level word coloured by risk (falls back to the company-risk score on old rows). Always shown (BR-20).
+Widget riskCell(BuildContext ctx, Map<String, dynamic> r) {
   final c = ctx.vn;
-  return Text(s == null ? Fmt.dash : Fmt.score(s), style: TextStyle(color: s != null && s >= 60 ? c.downText : (s != null && s >= 35 ? c.ref : c.muted), fontWeight: FontWeight.w600));
+  final total = asNum(r['risk_total']);
+  final level = r['risk_total_level']?.toString() ?? (asNum(r['risk_score']) == null ? null : ((asNum(r['risk_score'])! >= 60) ? 'HIGH' : (asNum(r['risk_score'])! >= 35 ? 'MEDIUM' : 'LOW')));
+  if (level == null) return Text(Fmt.dash, style: TextStyle(color: c.faint));
+  final col = {'LOW': c.up, 'MEDIUM': c.ref, 'HIGH': c.downText}[level] ?? c.muted;
+  return Row(mainAxisSize: MainAxisSize.min, children: [
+    StatusDot(col, size: 7), const SizedBox(width: 5),
+    Text({'LOW': 'Thấp', 'MEDIUM': 'Trung bình', 'HIGH': 'Cao'}[level]!, style: TextStyle(color: col, fontWeight: FontWeight.w600, fontSize: 12.5)),
+    if (total != null) Text(' ${Fmt.score(total)}', style: TextStyle(color: c.faint, fontSize: 11.5)),
+  ]);
+}
+
+/// Risk pill for cards: "Rủi ro thấp / trung bình / cao".
+Widget riskPill(BuildContext ctx, Map<String, dynamic> r, {double fontSize = 10}) {
+  final c = ctx.vn;
+  final level = r['risk_total_level']?.toString() ?? ((asNum(r['risk_score']) ?? 0) >= 60 ? 'HIGH' : null);
+  if (level == null) return const SizedBox.shrink();
+  return Pill('Rủi ro ${{'LOW': 'thấp', 'MEDIUM': 'trung bình', 'HIGH': 'cao'}[level]}', color: {'LOW': c.up, 'MEDIUM': c.ref, 'HIGH': c.down}[level]!, fontSize: fontSize);
 }
 
 /// Desktop: sticky-first-column table (horizontal scroll for the rest); phone/tablet: card list.
@@ -136,7 +152,7 @@ class StockCard extends StatelessWidget {
               const SizedBox(width: 8),
               TrendChips(r['trend3']?.toString()),
               if (r['is_chase'] == true) ...[const SizedBox(width: 6), Pill('Mua đuổi', color: c.ref, fontSize: 10)],
-              if ((asNum(r['risk_score']) ?? 0) >= 60) ...[const SizedBox(width: 6), Pill('Rủi ro cao', color: c.down, fontSize: 10)],
+              const SizedBox(width: 6), riskPill(context, r),
             ]),
             if (sub != null) Padding(padding: const EdgeInsets.only(top: 2), child: Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.muted, fontSize: 12))),
             const SizedBox(height: 6),

@@ -23,8 +23,18 @@ from app.engines.indicators import OUTPUT_COLS, compute_indicators, rs_ratings, 
 from app.engines.ratios import compute_ratios
 from app.engines.regime import classify_regime
 from app.engines.risk import beta as calc_beta
-from app.engines.risk import company_risk, nan_to_none, reliability_label
-from app.engines.scoring import RATING_VI, composite, downgrade, fund_components, pattern_ai_score, percentile_within_groups, rating_for, tech_components, trade_plan
+from app.engines.risk import company_risk, nan_to_none, reliability_label, risk_adjusted, total_risk
+from app.engines.scoring import (
+    RATING_VI,
+    composite,
+    downgrade,
+    fund_components,
+    pattern_ai_score,
+    percentile_within_groups,
+    rating_for,
+    tech_components,
+    trade_plan,
+)
 from app.ingestion.prices import sync_indexes, sync_prices
 from app.ingestion.universe import sync_universe
 from app.models import (
@@ -370,7 +380,7 @@ FUND_PCT_COLS = ["profit_yoy", "revenue_yoy", "profit_cagr_3y", "revenue_cagr_3y
 
 
 async def _latest_rows(db: AsyncSession, model, symbols: list[str], date_col: str = "trade_date", since: date | None = None) -> dict[str, object]:
-    base_q = select(getattr(model, "symbol"), func.max(getattr(model, date_col)).label("d")).where(model.symbol.in_(symbols))
+    base_q = select(model.symbol, func.max(getattr(model, date_col)).label("d")).where(model.symbol.in_(symbols))
     if since is not None:
         base_q = base_q.where(getattr(model, date_col) >= since)
     sub = base_q.group_by(model.symbol).subquery()
@@ -457,6 +467,101 @@ async def step_scores(db: AsyncSession) -> dict:
 _SCORE_CACHE: dict[str, dict] = {}
 
 
+def _days_to_filing_deadline(today: date) -> int:
+    """Days until the next quarterly BCTC filing deadline (20/1, 20/4, 20/7, 20/10 for listed companies)."""
+    for m in (1, 4, 7, 10):
+        dl = date(today.year, m, 20)
+        if dl >= today:
+            return (dl - today).days
+    return (date(today.year + 1, 1, 20) - today).days
+
+
+def _days_to_derivatives_expiry(today: date) -> int:
+    """Days until the next VN30 futures expiry (third Thursday of the month)."""
+    for k in (0, 1):
+        y, m = (today.year + (today.month + k - 1) // 12, (today.month + k - 1) % 12 + 1)
+        first = date(y, m, 1)
+        third_thu = first + timedelta(days=(3 - first.weekday()) % 7 + 14)
+        if third_thu >= today:
+            return (third_thu - today).days
+    return 30
+
+
+async def _betas_from_prices(db: AsyncSession, symbols: list[str], sessions: int = 60) -> dict[str, float]:
+    """60-session beta vs VN-Index from price_daily (used when the in-process cache from step_rs_beta is empty)."""
+    since = today_vn() - timedelta(days=int(sessions * 1.6) + 10)
+    idx = pd.Series({d: c for d, c in (await db.execute(select(IndexDaily.trade_date, IndexDaily.close).where(IndexDaily.index_code == "VNINDEX", IndexDaily.trade_date >= since))).all()}).sort_index()
+    rows = (await db.execute(select(PriceDaily.symbol, PriceDaily.trade_date, PriceDaily.close).where(PriceDaily.symbol.in_(symbols), PriceDaily.trade_date >= since))).all()
+    if idx.empty or not rows:
+        return {}
+    px = pd.DataFrame(rows, columns=["symbol", "d", "c"]).pivot(index="d", columns="symbol", values="c").sort_index()
+    idx_ret = idx.pct_change().iloc[-sessions:]
+    out = {}
+    for sym in px.columns:
+        b = calc_beta(px[sym].pct_change().iloc[-sessions:], idx_ret)
+        if b is not None:
+            out[sym] = b
+    return out
+
+
+async def step_risk_total(db: AsyncSession) -> dict:
+    """Total risk score per stock (6 components, engines.risk.total_risk) + risk-adjusted ranking scores on the latest
+    stock_scores row; risk ≥ downgrade_from lowers the rating one step (also in the in-process score cache)."""
+    stocks = await _active_symbols(db)
+    symbols = [s.symbol for s in stocks]
+    d = (await db.execute(select(func.max(IndicatorDaily.trade_date)))).scalar()
+    if d is None:
+        return {"scored": 0}
+    ind = await _latest_rows(db, IndicatorDaily, symbols, since=d - timedelta(days=7))
+    scores = await _latest_rows(db, StockScore, symbols, since=d - timedelta(days=7))
+    weights = await get_config(db, "risk.score_weights")
+    params = await get_config(db, "risk.score_params")
+    min_liq = float(await get_config(db, "market.min_liquidity") or 0)
+    dates = [x for (x,) in (await db.execute(select(IndicatorDaily.trade_date).distinct().order_by(desc(IndicatorDaily.trade_date)).limit(21))).all()]
+    d20 = dates[-1] if len(dates) >= 21 else None
+    close20 = dict((await db.execute(select(IndicatorDaily.symbol, IndicatorDaily.close).where(IndicatorDaily.trade_date == d20, IndicatorDaily.symbol.in_(symbols)))).all()) if d20 else {}
+    dd = dict((await db.execute(text("""SELECT symbol, -min(close / nullif(mx, 0) - 1) * 100 FROM (
+        SELECT symbol, close, max(close) OVER (PARTITION BY symbol ORDER BY trade_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) mx
+        FROM price_daily WHERE trade_date >= :since) t GROUP BY symbol"""), {"since": d - timedelta(days=365)})).all())
+    risks = {r.symbol: r.score for r in (await db.execute(select(CompanyRiskScore).where(CompanyRiskScore.symbol.in_(symbols)))).scalars()}
+    news = dict((await db.execute(text("""SELECT l.symbol, count(*) FROM news_stock_links l JOIN news_articles a ON a.id = l.article_id
+                                           WHERE a.published_at >= now() - interval '7 days' GROUP BY 1"""))).all())
+    today = today_vn()
+    ex = {sym: (x - today).days for sym, x in (await db.execute(select(CorporateAction.symbol, func.min(CorporateAction.ex_date)).where(CorporateAction.ex_date >= today, CorporateAction.kind.in_(["CASH_DIVIDEND", "STOCK_DIVIDEND", "BONUS", "ISSUE"])).group_by(CorporateAction.symbol))).all()}
+    agm = {sym: (x - today).days for sym, x in (await db.execute(select(CorporateAction.symbol, func.min(CorporateAction.event_date)).where(CorporateAction.event_date >= today, CorporateAction.kind.in_(["AGM", "AGM_RECORD"])).group_by(CorporateAction.symbol))).all()}
+    if not _BETA_CACHE:  # standalone run (recompute / admin "chạy lại"): rs_beta did not run in this process
+        _BETA_CACHE.update(await _betas_from_prices(db, symbols))
+    filing, expiry = _days_to_filing_deadline(today), _days_to_derivatives_expiry(today)
+    downgrade_from = float(params.get("downgrade_from", 70))
+    n = levels = 0
+    counts = {"LOW": 0, "MEDIUM": 0, "HIGH": 0}
+    for s in stocks:
+        i, sc = ind.get(s.symbol), scores.get(s.symbol)
+        if not i or not sc:
+            continue
+        c20 = close20.get(s.symbol)
+        res = total_risk({
+            "price": i.close, "atr14": i.atr14, "drawdown_12m_pct": dd.get(s.symbol), "value_ma20": i.value_ma20, "min_liquidity_vnd": min_liq,
+            "company_risk": risks.get(s.symbol), "gain_20d_pct": (i.close / c20 - 1) * 100 if c20 and i.close else None, "ceiling_streak": i.ceiling_streak,
+            "vol_ratio": i.vol_ratio, "free_float_pct": s.free_float_pct, "news_count_7d": news.get(s.symbol, 0), "earnings_in_days": filing,
+            "ex_date_in_days": ex.get(s.symbol), "agm_in_days": agm.get(s.symbol), "expiry_in_days": expiry, "in_vn30": s.in_vn30,
+            "beta_60": _BETA_CACHE.get(s.symbol),
+        }, weights, params)
+        sc.risk_total, sc.risk_total_level, sc.risk_components = res["score"], res["level"], res["components"]
+        if res["score"] >= downgrade_from:
+            sc.rating_short, sc.rating_mid, sc.rating_long = downgrade(sc.rating_short), downgrade(sc.rating_mid), downgrade(sc.rating_long)
+            levels += 1
+        sc.score_adj_short, sc.score_adj_mid, sc.score_adj_long = risk_adjusted(sc.score_short, res["score"]), risk_adjusted(sc.score_mid, res["score"]), risk_adjusted(sc.score_long, res["score"])
+        cache = _SCORE_CACHE.get(s.symbol)
+        if cache is not None:
+            cache.update(rating_short=sc.rating_short, rating_mid=sc.rating_mid, rating_long=sc.rating_long, risk_total=res["score"], risk_total_level=res["level"])
+        counts[res["level"]] += 1
+        n += 1
+    await db.flush()
+    return {"scored": n, "downgraded": levels, **{k.lower(): v for k, v in counts.items()}, "summary": f"{n} mã · thấp {counts['LOW']}, trung bình {counts['MEDIUM']}, cao {counts['HIGH']} · hạ bậc {levels}"}
+
+
+
 def _trend3(i: IndicatorDaily) -> tuple[str, str, str]:
     c = i.close
 
@@ -475,7 +580,7 @@ def _trend3(i: IndicatorDaily) -> tuple[str, str, str]:
 def _reasons(i: IndicatorDaily, r: FinancialRatio | None, b: PriceBase | None, rl: RallyStat | None, gain: float | None, risk, sector_score: float, s: Stock) -> tuple[list, list]:
     reasons, draw = [], []
     if i.ma50 and i.ma200 and i.close > i.ma50 > i.ma200:
-        reasons.append({"code": "TREND", "text": f"Giá > MA50 > MA200" + (", MA200 dốc lên" if (i.ma200_slope or 0) > 0 else "")})
+        reasons.append({"code": "TREND", "text": "Giá > MA50 > MA200" + (", MA200 dốc lên" if (i.ma200_slope or 0) > 0 else "")})
     elif i.ma50 and i.close > i.ma50:
         reasons.append({"code": "TREND", "text": "Giá đang trên MA50"})
     elif i.ma50 and i.close < i.ma50:
@@ -697,6 +802,8 @@ async def step_snapshot(db: AsyncSession) -> dict:
             base_status=b.status if b else None, base_length_days=b.length_days if b else None, base_tightness=b.tightness_pct if b else None, base_high=b.base_high if b else None,
             gain_from_base_pct=gain, rally_gain_vs_median=(gain / rl.median_gain_pct * 100) if (gain is not None and rl and rl.median_gain_pct) else None,
             risk_score=rk.score if rk else None, risk_level=rk.level if rk else None, beta_60=_BETA_CACHE.get(s.symbol), earnings_in_days=ev.get(s.symbol),
+            risk_total=sc.risk_total if sc else None, risk_total_level=sc.risk_total_level if sc else None, risk_components=sc.risk_components if sc else None,
+            score_adj_short=sc.score_adj_short if sc else None, score_adj_mid=sc.score_adj_mid if sc else None, score_adj_long=sc.score_adj_long if sc else None,
             is_chase=cache.get("is_chase"), signals_today=sigs.get(s.symbol, []), entry_low=sc.entry_low if sc else None, entry_high=sc.entry_high if sc else None,
             stop_loss=sc.stop_loss if sc else None, take_profit_1=sc.take_profit_1 if sc else None, rating_changed=changed, prev_rating=prev_rating if changed else (prev.prev_rating if prev and not changed and prev.trade_date == i.trade_date else prev_rating),
         )
@@ -821,6 +928,29 @@ async def step_explain(db: AsyncSession) -> dict:
 
 
 # ------------------------------------------------------------------ chain
+# Vietnamese label + nominal start time per step (A01 "chuỗi xử lý cuối ngày"; chain starts 15:05).
+EOD_STEP_INFO: dict[str, tuple[str, str]] = {
+    "eod.universe": ("Cập nhật danh sách mã", "15:05"),
+    "eod.prices": ("Lấy giá đóng cửa", "15:06"),
+    "eod.extras": ("Sự kiện, giao dịch nội bộ, dòng tiền", "15:10"),
+    "eod.indicators": ("Tính chỉ báo kỹ thuật", "15:15"),
+    "eod.bases": ("Nền giá, đợt tăng", "15:20"),
+    "eod.rs_beta": ("Sức mạnh tương đối, beta", "15:25"),
+    "eod.ratios": ("Chỉ số tài chính, định giá", "15:28"),
+    "eod.regime": ("Trạng thái thị trường", "15:30"),
+    "eod.sectors": ("Điểm ngành", "15:32"),
+    "eod.company_risk": ("Điểm rủi ro doanh nghiệp", "15:34"),
+    "eod.scores": ("Chấm điểm 3 khung", "15:36"),
+    "eod.risk_total": ("Điểm rủi ro tổng hợp", "15:38"),
+    "eod.signals": ("Chạy chiến lược, phát tín hiệu", "15:40"),
+    "eod.snapshot": ("Ghi ảnh chụp cuối ngày", "15:45"),
+    "eod.enrich": ("Bổ sung tin tức, khuyến nghị CTCK", "15:48"),
+    "eod.outcomes": ("Cập nhật kết quả tín hiệu", "15:50"),
+    "eod.presets": ("Đếm mã khớp bộ lọc mẫu", "15:52"),
+    "eod.explain": ("AI viết nhận định", "15:55"),
+    "eod.users": ("Đánh giá cảnh báo, gửi báo cáo cuối ngày", "16:00"),
+}
+
 EOD_STEPS = [
     ("eod.universe", step_universe),
     ("eod.prices", step_prices),
@@ -833,6 +963,7 @@ EOD_STEPS = [
     ("eod.sectors", step_sectors),
     ("eod.company_risk", step_company_risk),
     ("eod.scores", step_scores),
+    ("eod.risk_total", step_risk_total),
     ("eod.signals", step_signals),
     ("eod.snapshot", step_snapshot),
     ("eod.enrich", step_enrich),

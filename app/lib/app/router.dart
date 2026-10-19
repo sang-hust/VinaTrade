@@ -54,7 +54,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/pending', builder: (c, s) => const PendingPage()),
       GoRoute(path: '/onboarding', builder: (c, s) => const OnboardingPage()),
       GoRoute(path: '/admin', redirect: (c, s) => s.uri.path == '/admin' ? '/admin/overview' : null, routes: [
-        GoRoute(path: ':section', builder: (c, s) => AdminShell(section: s.pathParameters['section']!)),
+        GoRoute(path: ':section', builder: (c, s) => AdminShell(section: s.pathParameters['section']!, query: s.uri.queryParameters)),
       ]),
       ShellRoute(
         builder: (context, state, child) => AppShell(location: state.uri.toString(), child: child),

@@ -6,6 +6,7 @@ import jwt
 from fastapi import Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.db import get_db
 from app.core.errors import ApiError
 from app.core.security import decode_access_token
@@ -30,7 +31,7 @@ async def get_token_payload(authorization: Annotated[str | None, Header()] = Non
         raise ApiError(401, "TOKEN_INVALID", "Mã đăng nhập không hợp lệ") from e
 
 
-async def current_user_any(db: DB, payload: Annotated[dict, Depends(get_token_payload)]) -> User:
+async def current_user_any(db: DB, payload: Annotated[dict, Depends(get_token_payload)], request: Request = None) -> User:
     """Any authenticated user, including PENDING (for /me status polling)."""
     user = await db.get(User, uuid.UUID(payload["sub"]))
     if not user:
@@ -40,6 +41,8 @@ async def current_user_any(db: DB, payload: Annotated[dict, Depends(get_token_pa
         if dev is None:
             raise ApiError(401, "SESSION_REVOKED", "Thiết bị này đã bị đăng xuất")
         dev.last_seen_at = datetime.now(UTC)
+        if request is not None:
+            request.state.device = dev
     return user
 
 
@@ -56,9 +59,25 @@ async def current_user(user: Annotated[User, Depends(current_user_any)]) -> User
     return user
 
 
-async def admin_user(user: Annotated[User, Depends(current_user)]) -> User:
+def admin_2fa_required() -> bool:
+    return settings.admin_require_2fa if settings.admin_require_2fa is not None else not settings.debug
+
+
+async def admin_user(user: Annotated[User, Depends(current_user)], request: Request, db: DB) -> User:
+    """ADMIN role + mandatory 2FA + 30-minute idle lock on the admin console (UI spec 15). The lock is per device:
+    the first admin request after login (or after /admin/session/unlock) opens the console; a gap longer than
+    ADMIN_IDLE_MINUTES between admin requests closes it until the admin re-enters the password (and TOTP)."""
     if user.role != "ADMIN":
         raise ApiError(403, "ADMIN_ONLY", "Chỉ quản trị viên được phép")
+    if admin_2fa_required() and not user.totp_enabled:
+        raise ApiError(403, "ADMIN_2FA_REQUIRED", "Trang quản trị yêu cầu bật xác thực 2 lớp", {"setup": "/account"})
+    dev: UserDevice | None = getattr(request.state, "device", None)
+    if dev is not None:
+        now = datetime.now(UTC)
+        if dev.admin_seen_at and (now - dev.admin_seen_at).total_seconds() > settings.admin_idle_minutes * 60:
+            raise ApiError(403, "ADMIN_SESSION_EXPIRED", f"Phiên quản trị đã khóa sau {settings.admin_idle_minutes} phút không thao tác. Nhập lại mật khẩu để tiếp tục.")
+        dev.admin_seen_at = now
+        await db.commit()  # the request session only commits on writes; the idle clock must persist on reads too
     return user
 
 

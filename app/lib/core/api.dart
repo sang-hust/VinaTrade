@@ -54,6 +54,8 @@ class ApiClient {
   String? refreshToken;
   Completer<bool>? _refreshing;
   void Function()? onUnauthenticated;
+  /// Admin console idle lock (ADMIN_SESSION_EXPIRED) / 2FA gate (ADMIN_2FA_REQUIRED) — the admin frame shows an overlay.
+  void Function(String code)? onAdminGate;
 
   ApiClient() {
     dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl, connectTimeout: const Duration(seconds: 20), receiveTimeout: const Duration(seconds: 60), headers: {'Accept': 'application/json'}));
@@ -77,6 +79,7 @@ class ApiClient {
             }
           }
         }
+        if (e.response?.statusCode == 403 && (code == 'ADMIN_SESSION_EXPIRED' || code == 'ADMIN_2FA_REQUIRED')) onAdminGate?.call(code!);
         if (e.response?.statusCode == 401 && (code == 'TOKEN_INVALID' || code == 'SESSION_REVOKED' || code == 'REFRESH_INVALID' || code == 'REFRESH_REUSED' || code == 'USER_NOT_FOUND')) {
           await setTokens(null, null);
           onUnauthenticated?.call();

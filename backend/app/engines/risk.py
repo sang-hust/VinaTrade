@@ -289,3 +289,146 @@ def nan_to_none(v):
         v = v.item()
         return None if isinstance(v, float) and math.isnan(v) else v
     return v
+
+
+# ---------------------------------------------------------------- total risk score (least-risk ranking)
+# Six components, each 0–100 (higher = riskier), combined with admin-editable weights (system_config risk.score_weights).
+# Opportunity score is ranked by score × (1 − risk/200) so a 70-point / risk-20 stock outranks an 85-point / risk-60 one.
+RISK_COMPONENT_LABELS = {
+    "volatility": "Biến động", "liquidity": "Thanh khoản", "company": "Doanh nghiệp", "manipulation": "Dấu hiệu thao túng",
+    "event": "Sự kiện sắp tới", "correlation": "Tương quan",
+}
+DEFAULT_RISK_WEIGHTS = {"volatility": 25, "liquidity": 20, "company": 20, "manipulation": 15, "event": 10, "correlation": 10}
+DEFAULT_RISK_PARAMS = {"order_value_vnd": 100_000_000, "medium_from": 30, "high_from": 50, "downgrade_from": 60,
+                       "atr_pct_high": 5.0, "drawdown_high": 50.0, "gain20_hot": 50.0, "ceiling_streak_hot": 4}
+
+
+def _interp(x: float | None, pts: list[tuple[float, float]]) -> float:
+    """Piecewise-linear map of x over sorted (x, y) points; clamped at both ends. None → 0."""
+    if x is None or (isinstance(x, float) and math.isnan(x)):
+        return 0.0
+    if x <= pts[0][0]:
+        return float(pts[0][1])
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:], strict=False):
+        if x <= x1:
+            return float(y0 + (y1 - y0) * (x - x0) / (x1 - x0))
+    return float(pts[-1][1])
+
+
+def risk_level(score: float, params: dict | None = None) -> str:
+    p = {**DEFAULT_RISK_PARAMS, **(params or {})}
+    return "HIGH" if score >= p["high_from"] else ("MEDIUM" if score >= p["medium_from"] else "LOW")
+
+
+def risk_adjusted(score: float | None, risk: float | None) -> float | None:
+    """Ranking score: opportunity × (1 − risk/200). Risk 0 keeps the score, risk 100 halves it."""
+    if score is None:
+        return None
+    return round(float(score) * (1 - (risk or 0) / 200), 1)
+
+
+def combine_risk(components: list[dict], weights: dict | None = None, params: dict | None = None) -> dict:
+    w = {**DEFAULT_RISK_WEIGHTS, **(weights or {})}
+    tot = sum(w.values()) or 100
+    score = sum(w.get(c["key"], 0) * c["score"] for c in components) / tot
+    score = round(_clamp(score, 0, 100), 1)
+    return {"score": score, "level": risk_level(score, params), "components": [{**c, "weight": w.get(c["key"], 0)} for c in components]}
+
+
+def total_risk(i: dict, weights: dict | None = None, params: dict | None = None) -> dict:
+    """Inputs (all optional): price, atr14, drawdown_12m_pct (positive magnitude), value_ma20, min_liquidity_vnd,
+    company_risk, gain_20d_pct, ceiling_streak, vol_ratio, free_float_pct, news_count_7d, earnings_in_days,
+    ex_date_in_days, agm_in_days, expiry_in_days, in_vn30, beta_60, max_corr (correlation with the user's holdings)."""
+    p = {**DEFAULT_RISK_PARAMS, **(params or {})}
+    comps: list[dict] = []
+
+    def add(key, score, note):
+        comps.append({"key": key, "label": RISK_COMPONENT_LABELS[key], "score": round(_clamp(score, 0, 100), 1), "note": note})
+
+    # 1. volatility: ATR% (60%) + 12-month drawdown (40%)
+    price, atr = i.get("price"), i.get("atr14")
+    atr_pct = (atr / price * 100) if atr and price else None
+    hi = p["atr_pct_high"]
+    s_atr = _interp(atr_pct, [(1.5, 10), (3.0, 40), (hi, 70), (hi * 1.4, 100)])
+    dd = i.get("drawdown_12m_pct")
+    dd_hi = p["drawdown_high"]
+    s_dd = _interp(dd, [(15, 10), (30, 40), (dd_hi, 70), (70, 100)])
+    note = []
+    if atr_pct is not None:
+        note.append(f"dao động trung bình {atr_pct:.1f}%/phiên")
+    if dd is not None:
+        note.append(f"từng giảm {dd:.0f}% từ đỉnh trong 12 tháng")
+    add("volatility", 0.6 * s_atr + 0.4 * s_dd, ", ".join(note) or "chưa đủ dữ liệu")
+
+    # 2. liquidity: reference order vs 20-session average value
+    val = i.get("value_ma20")
+    order = float(p["order_value_vnd"])
+    share = (order / val * 100) if val else None
+    s_liq = _interp(share, [(1, 0), (5, 50), (10, 100)]) if share is not None else 60.0
+    min_liq = i.get("min_liquidity_vnd")
+    if val is not None and min_liq and val < min_liq:
+        s_liq += 40
+    add("liquidity", s_liq, f"lệnh {order / 1e6:.0f} triệu bằng {share:.1f}% giá trị khớp trung bình một phiên" if share is not None else "chưa có dữ liệu thanh khoản")
+
+    # 3. company risk: existing company score as-is
+    cr = i.get("company_risk")
+    add("company", cr if cr is not None else 0.0, f"điểm rủi ro doanh nghiệp {cr:.0f}" if cr is not None else "chưa có điểm rủi ro doanh nghiệp")
+
+    # 4. manipulation signs
+    s_m, parts = 0.0, []
+    g20 = i.get("gain_20d_pct")
+    hot = p["gain20_hot"]
+    if g20 is not None and g20 > 30:
+        s_m += 30 if g20 <= hot else 60
+        parts.append(f"tăng {g20:.0f}% trong 20 phiên")
+    cs = i.get("ceiling_streak") or 0
+    if cs >= p["ceiling_streak_hot"]:
+        s_m += 40
+        parts.append(f"{cs} phiên trần liên tiếp")
+    elif cs >= 2:
+        s_m += 20
+        parts.append(f"{cs} phiên trần liên tiếp")
+    vr = i.get("vol_ratio")
+    if vr is not None and vr >= 3:
+        s_m += 15
+        parts.append(f"khối lượng gấp {vr:.1f} lần trung bình")
+    ff = i.get("free_float_pct")
+    if ff is not None and ff < 20:
+        s_m += 15
+        parts.append(f"tỷ lệ tự do chuyển nhượng {ff:.0f}%")
+    if g20 is not None and g20 > 30 and (i.get("news_count_7d") or 0) == 0:
+        s_m += 15
+        parts.append("không có tin tức đi kèm")
+    add("manipulation", s_m, ", ".join(parts) or "không thấy dấu hiệu bất thường")
+
+    # 5. upcoming events (within 10 sessions)
+    s_e, parts = 0.0, []
+    ed = i.get("earnings_in_days")
+    if ed is not None and 0 <= ed <= 10:
+        s_e += 40
+        parts.append(f"hạn nộp BCTC trong {ed} ngày")
+    xd = i.get("ex_date_in_days")
+    if xd is not None and 0 <= xd <= 14:
+        s_e += 30
+        parts.append(f"ngày GDKHQ trong {xd} ngày")
+    ag = i.get("agm_in_days")
+    if ag is not None and 0 <= ag <= 14:
+        s_e += 15
+        parts.append(f"họp cổ đông trong {ag} ngày")
+    xp = i.get("expiry_in_days")
+    if i.get("in_vn30") and xp is not None and 0 <= xp <= 3:
+        s_e += 20
+        parts.append("đáo hạn phái sinh trong tuần")
+    add("event", s_e, ", ".join(parts) or "không có sự kiện trong 2 tuần tới")
+
+    # 6. correlation: holdings correlation when known, else beta vs VN-Index
+    comps.append(correlation_component(i.get("max_corr"), i.get("beta_60"), i.get("max_corr_symbol")))
+    return combine_risk(comps, weights, p)
+
+
+def correlation_component(max_corr: float | None, beta: float | None, symbol: str | None = None) -> dict:
+    if max_corr is not None:
+        return {"key": "correlation", "label": RISK_COMPONENT_LABELS["correlation"], "score": round(_interp(abs(max_corr), [(0.4, 0), (0.6, 50), (0.8, 100)]), 1),
+                "note": f"tương quan {max_corr:.2f} với mã đang nắm giữ" + (f" ({symbol})" if symbol else "")}
+    return {"key": "correlation", "label": RISK_COMPONENT_LABELS["correlation"], "score": round(_interp(abs(beta) if beta is not None else None, [(0.8, 0), (1.2, 30), (1.5, 60), (2.0, 100)]), 1),
+            "note": f"beta {beta:.2f} so với VN-Index" if beta is not None else "chưa có beta"}

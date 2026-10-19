@@ -161,6 +161,13 @@ class StockScore(Base):
     risk_reward: Mapped[float | None] = mapped_column(Float)
     reasons: Mapped[list | None] = mapped_column(JSON)
     drawbacks: Mapped[list | None] = mapped_column(JSON)
+    # total risk (6 components, engines.risk.total_risk) and risk-adjusted ranking scores
+    risk_total: Mapped[float | None] = mapped_column(Float)
+    risk_total_level: Mapped[str | None] = mapped_column(String(8))  # LOW | MEDIUM | HIGH
+    risk_components: Mapped[list | None] = mapped_column(JSON)
+    score_adj_short: Mapped[float | None] = mapped_column(Float)
+    score_adj_mid: Mapped[float | None] = mapped_column(Float)
+    score_adj_long: Mapped[float | None] = mapped_column(Float)
 
 
 class Strategy(Base):
@@ -179,6 +186,10 @@ class Strategy(Base):
     avg_return: Mapped[float | None] = mapped_column(Float)
     max_drawdown: Mapped[float | None] = mapped_column(Float)
     trades: Mapped[int | None] = mapped_column(Integer)
+    # Draft version (A03): params being edited + backtest comparison; becomes live via /admin/strategies/{code}/activate-draft
+    draft_params: Mapped[dict | None] = mapped_column(JSON)
+    draft_backtest: Mapped[dict | None] = mapped_column(JSON)
+    draft_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
@@ -281,6 +292,7 @@ class StockSnapshot(Base):
         Index("ix_snap_exchange", "exchange"),
         Index("ix_snap_industry", "industry_code"),
         Index("ix_snap_score_mid", "score_mid"),
+        Index("ix_snap_score_adj_mid", "score_adj_mid"),
     )
 
     symbol: Mapped[str] = mapped_column(String(12), primary_key=True)
@@ -383,6 +395,12 @@ class StockSnapshot(Base):
     news_sentiment_7d: Mapped[float | None] = mapped_column(Float)
     news_count_7d: Mapped[int | None] = mapped_column(Integer)
     next_event: Mapped[dict | None] = mapped_column(JSON)
+    risk_total: Mapped[float | None] = mapped_column(Float)
+    risk_total_level: Mapped[str | None] = mapped_column(String(8))
+    risk_components: Mapped[list | None] = mapped_column(JSON)
+    score_adj_short: Mapped[float | None] = mapped_column(Float)
+    score_adj_mid: Mapped[float | None] = mapped_column(Float)
+    score_adj_long: Mapped[float | None] = mapped_column(Float)
     rating_changed: Mapped[bool | None] = mapped_column(Boolean)
     prev_rating: Mapped[str | None] = mapped_column(String(12))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
