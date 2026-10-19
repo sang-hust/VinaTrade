@@ -287,6 +287,31 @@ class _Result extends StatelessWidget {
               ),
           ]),
         ),
+        if (asList(r['options']).isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text('Ba lựa chọn, xếp từ ít rủi ro nhất', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: c.text)),
+          const SizedBox(height: 6),
+          for (final o in asList(r['options']))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: AppCard(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                borderColor: o['key'] == 'none' ? c.up.withValues(alpha: 0.5) : null,
+                onTap: o['key'] == 'none' ? () => Navigator.pop(context, false) : () {
+                  s.qty.text = o['quantity'].toString();
+                  s._check(save: false);
+                },
+                child: Row(children: [
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(o['label'].toString(), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                    Text(o['note']?.toString() ?? '', style: TextStyle(color: c.muted, fontSize: 11.5)),
+                  ])),
+                  if ((asInt(o['quantity']) ?? 0) > 0) Text('${Fmt.qty(asNum(o['quantity']))} · ${Fmt.money(asNum(o['order_value']))}', style: TextStyle(color: c.faint, fontSize: 12)),
+                ]),
+              ),
+            ),
+          if (asMap(r['risk_numbers'])['text'] != null) Padding(padding: const EdgeInsets.only(top: 2, bottom: 4), child: Text(asMap(r['risk_numbers'])['text'].toString(), style: TextStyle(color: c.muted, fontSize: 12, height: 1.35))),
+        ],
         const SizedBox(height: 10),
         Wrap(spacing: 16, runSpacing: 8, children: [
           LabeledValue('Khối lượng gợi ý', Fmt.qty(asNum(r['suggested_qty']))),

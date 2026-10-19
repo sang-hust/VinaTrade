@@ -9,7 +9,16 @@ from app.api.presenters import clean
 from app.core.errors import bad_request, not_found
 from app.core.vntime import floor_lot, round_tick
 from app.engines.risk import PretradeInput, pretrade_check
-from app.models import MarketRegime, Portfolio, PretradeCheck, RiskGuardEvent, SignalReliability, Stock, StockSnapshot, UserSettings
+from app.models import (
+    MarketRegime,
+    Portfolio,
+    PretradeCheck,
+    RiskGuardEvent,
+    SignalReliability,
+    Stock,
+    StockSnapshot,
+    UserSettings,
+)
 from app.services.portfolio import portfolio_view
 from app.services.riskguard import ensure_user_defaults
 from app.services.sysconfig import get_config
@@ -101,7 +110,12 @@ async def pretrade(body: PretradeIn, user: CurrentUser, db: DB):
         if res["result"] == "RED" and body.override_reason:
             db.add(RiskGuardEvent(user_id=user.id, kind="RED_OVERRIDE", symbol=sym, detail={"check_id": str(pc.id), "items": [i["code"] for i in res["items"] if i["level"] == "RED"]}, note=body.override_reason))
         await db.commit()
-    return {**res, "check_id": str(check_id) if check_id else None, "symbol": sym, "name": st.short_name or st.name_vi, "horizon": hz, "quantity": int(qty), "price": round_tick(price, st.exchange),
+    from app.engines.risk import buy_options, risk_numbers
+    from app.services.risknumbers import rel_dict
+
+    options = buy_options(price, stop, int(qty), sn.value_ma20, equity)
+    numbers = risk_numbers(rel_dict(rel), price, stop, int(qty) * price, sn.value_ma20)
+    return {**res, "options": options, "risk_numbers": numbers, "check_id": str(check_id) if check_id else None, "symbol": sym, "name": st.short_name or st.name_vi, "horizon": hz, "quantity": int(qty), "price": round_tick(price, st.exchange),
             "stop_loss": round_tick(stop, st.exchange, "down"), "take_profit": round_tick(tp, st.exchange, "up"), "equity": round(equity), "equity_is_default": not (view and view["nav"] > 0) and not (us and us.capital_vnd),
             "portfolio_id": str(pf.id) if pf else None, "regime": regime, "guard_mode": g.mode, "tick": round_tick(price, st.exchange) - round_tick(price - 1, st.exchange, "down"),
             "ceiling": clean(sn.ceiling), "floor": clean(sn.floor), "can_override": res["result"] == "RED" and g.mode != "DEFENSIVE"}

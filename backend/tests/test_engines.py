@@ -177,3 +177,17 @@ def test_total_risk_components_and_ranking():
     assert heavy["score"] != hot["score"]
     assert risk_adjusted(70, 20) > risk_adjusted(85, 60)
     assert risk_adjusted(None, 10) is None
+
+
+def test_risk_numbers_and_buy_options():
+    from app.engines.risk import buy_options, risk_numbers, slippage_pct
+
+    rel = {"samples": 312, "win_rate": 61.0, "stop_rate": 24.0, "p05_return": -11.2, "worst_return": -18.5, "avg_gain": 7.5, "avg_loss": -5.0}
+    n = risk_numbers(rel, 50000, 46000, 50_000_000, 20e9)
+    assert n["one_in"] == 4 and n["stop_pct"] == 8.0 and n["max_loss"] > 4_000_000 and "1 trên 4 lần chạm cắt lỗ" in n["text"] and "11%" in n["text"]
+    assert "50,0 triệu" in n["text"] and n["expectancy"] == round(0.61 * 7.5 - 0.39 * 5.0, 2) and n["short"].startswith("cắt lỗ 1/4")
+    assert risk_numbers({**rel, "samples": 12}, 50000, 46000, 1e7) is None
+    assert slippage_pct(1e8, 1e10) < slippage_pct(5e8, 1e10) <= 3.0
+    opts = buy_options(50000, 46000, 1000, 20e9, 500_000_000)
+    assert [o["key"] for o in opts] == ["none", "third", "full"] and opts[0]["max_loss"] == 0 and opts[1]["quantity"] == 300 and opts[2]["quantity"] == 1000
+    assert opts[1]["max_loss"] < opts[2]["max_loss"] and opts[2]["risk_pct"] > 0

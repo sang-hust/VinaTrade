@@ -432,3 +432,60 @@ def correlation_component(max_corr: float | None, beta: float | None, symbol: st
                 "note": f"tương quan {max_corr:.2f} với mã đang nắm giữ" + (f" ({symbol})" if symbol else "")}
     return {"key": "correlation", "label": RISK_COMPONENT_LABELS["correlation"], "score": round(_interp(abs(beta) if beta is not None else None, [(0.8, 0), (1.2, 30), (1.5, 60), (2.0, 100)]), 1),
             "note": f"beta {beta:.2f} so với VN-Index" if beta is not None else "chưa có beta"}
+
+
+# ---------------------------------------------------------------- "three risk numbers" on every suggestion
+def slippage_pct(order_value: float | None, value_ma20: float | None) -> float:
+    """Estimated slippage (%) from the order's share of a session's average traded value: 1% of a session → ~0.3%, 5% → ~1.1%, capped 3%."""
+    if not order_value or not value_ma20 or value_ma20 <= 0:
+        return 0.3
+    share = order_value / value_ma20
+    return round(min(3.0, 0.1 + 20 * share), 2)
+
+
+def _vnd(v: float) -> str:
+    if abs(v) >= 1e9:
+        return f"{v / 1e9:.1f} tỷ".replace(".", ",")
+    return f"{v / 1e6:.1f} triệu".replace(".", ",") if abs(v) >= 1e5 else f"{v:,.0f} đ".replace(",", ".")
+
+
+def risk_numbers(rel: dict | None, price: float | None, stop_loss: float | None, order_value: float | None, value_ma20: float | None = None, min_samples: int = 30) -> dict | None:
+    """rel: {samples, win_rate, stop_rate, p05_return, worst_return, avg_gain, avg_loss} for the signal's strategy × market
+    state × horizon (20 sessions). Returns the numbers plus a plain-language sentence, or None without enough samples."""
+    if not rel or (rel.get("samples") or 0) < min_samples:
+        return None
+    n = int(rel["samples"])
+    stop_rate = rel.get("stop_rate")
+    p05, worst = rel.get("p05_return"), rel.get("worst_return")
+    wr, gain, loss = rel.get("win_rate"), rel.get("avg_gain"), rel.get("avg_loss")
+    expectancy = round((wr or 0) / 100 * (gain or 0) + (1 - (wr or 0) / 100) * (loss or 0), 2) if wr is not None else None
+    slip = slippage_pct(order_value, value_ma20)
+    stop_pct = round((1 - stop_loss / price) * 100, 1) if price and stop_loss and price > 0 else None
+    max_loss = round(order_value * ((stop_pct or 0) + slip) / 100) if order_value and stop_pct is not None else None
+    one_in = round(100 / stop_rate) if stop_rate and stop_rate >= 1 else None
+    parts = [f"Trong {n} lần tương tự, " + (f"1 trên {one_in} lần chạm cắt lỗ" if one_in else "chưa lần nào chạm cắt lỗ")]
+    if p05 is not None:
+        parts[-1] += f"; 1 trên 20 lần tệ nhất mất từ {abs(p05):.0f}%" + (f" (tệ nhất {abs(worst):.0f}%)" if worst is not None and worst < p05 else "")
+    sent = parts[0] + "."
+    if max_loss is not None and order_value:
+        sent += f" Với {_vnd(order_value)}, bạn có thể mất tới {_vnd(max_loss)} nếu chạm cắt lỗ (gồm trượt giá {slip:.1f}%)."
+    short = (f"cắt lỗ 1/{one_in}" if one_in else "chưa chạm cắt lỗ") + (f" · tệ nhất −{abs(p05):.0f}%" if p05 is not None else "")
+    return {"samples": n, "win_rate": wr, "stop_rate": stop_rate, "one_in": one_in, "p05_return": p05, "worst_return": worst, "avg_gain": gain, "avg_loss": loss,
+            "expectancy": expectancy, "stop_pct": stop_pct, "slippage_pct": slip, "order_value": order_value, "max_loss": max_loss, "text": sent, "short": short}
+
+
+def buy_options(price: float, stop_loss: float | None, quantity: int, value_ma20: float | None, equity: float, lot: int = 100) -> list[dict]:
+    """Three choices ranked by risk for the pretrade sheet: do nothing / a third of the plan / the full plan, each with the
+    money at risk (distance to stop + slippage) and its share of equity."""
+    out = []
+    for key, label, frac in (("none", "Không mua lúc này", 0.0), ("third", "Mua 1/3 kế hoạch", 1 / 3), ("full", "Mua đủ kế hoạch", 1.0)):
+        q = floor_lot(quantity * frac, lot) if frac else 0
+        if frac and q <= 0:
+            q = lot
+        value = q * price
+        stop_pct = (1 - stop_loss / price) * 100 if stop_loss and price else 7.0
+        slip = slippage_pct(value, value_ma20) if value else 0.0
+        max_loss = round(value * (stop_pct + slip) / 100)
+        out.append({"key": key, "label": label, "quantity": int(q), "order_value": round(value), "max_loss": max_loss, "risk_pct": round(max_loss / equity * 100, 2) if equity else None,
+                    "note": "Giữ tiền, chờ xác nhận hoặc điểm mua tốt hơn." if not frac else f"Mất tối đa {_vnd(max_loss)} ({max_loss / equity * 100:.1f}% tài sản) nếu chạm cắt lỗ." if equity else f"Mất tối đa {_vnd(max_loss)} nếu chạm cắt lỗ."})
+    return out

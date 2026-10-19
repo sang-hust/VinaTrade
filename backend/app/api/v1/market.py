@@ -68,6 +68,12 @@ async def overview(user: CurrentUser, db: DB, horizon: str = "MID"):
     # least-risky first: rank by the snapshot's risk-adjusted score, then the signal score
     adj_col = f"score_adj_{horizon.lower()}"
     sigs.sort(key=lambda x: (-(getattr(snaps.get(x.symbol), adj_col, None) or 0), -(x.score or 0)))
+    from app.services.risknumbers import numbers_for, ref_order_vnd
+
+    ref_order = await ref_order_vnd(db, user)
+    regime_now = reg.regime if reg else "UPTREND"
+    rel_cache: dict = {}
+    numbers = {s.id: await numbers_for(db, s.strategy_code, s.regime_at_signal or regime_now, s.horizon, s.price, s.stop_loss, ref_order, getattr(snaps.get(s.symbol), "value_ma20", None), rel_cache) for s in sigs}
 
     def sig_item(s: Signal) -> dict:
         sn = snaps.get(s.symbol)
@@ -76,7 +82,7 @@ async def overview(user: CurrentUser, db: DB, horizon: str = "MID"):
                 "strategy_code": s.strategy_code, "title": s.title, "event": s.title.split("] ", 1)[-1].replace(f"{s.symbol} ", "", 1),
                 "entry_low": price_int(s.entry_low), "entry_high": price_int(s.entry_high), "stop_loss": price_int(s.stop_loss), "take_profit_1": price_int(s.take_profit_1),
                 "reliability_pct": clean(s.reliability_pct), "reliability_samples": s.reliability_samples, "stand_aside": s.stand_aside, "is_chase": s.is_chase,
-                "risk_score": clean(s.risk_score), "risk_total": clean(sn.risk_total) if sn else None, "risk_total_level": sn.risk_total_level if sn else None,
+                "risk_score": clean(s.risk_score), "risk_numbers": numbers.get(s.id), "risk_total": clean(sn.risk_total) if sn else None, "risk_total_level": sn.risk_total_level if sn else None,
                 "risk_total_vi": RISK_VI_LBL.get(sn.risk_total_level) if sn else None, "score_adj": clean(getattr(sn, adj_col, None)) if sn else None, "trend3": "".join({"UP": "▲", "FLAT": "▬", "DOWN": "▼"}.get(getattr(sn, k, None) or "FLAT", "▬") for k in ("trend_short", "trend_mid", "trend_long")) if sn else None}
 
     buys = [sig_item(s) for s in sigs if s.signal_type == "BUY" and not s.stand_aside][:8]
@@ -259,8 +265,12 @@ async def analysis(symbol: str, user: CurrentUser, db: DB, horizon: str | None =
     if last_sig and reg:
         r = await db.get(SignalReliability, (last_sig.strategy_code, reg.regime, hz, 20))
         if r and r.samples >= 30:
+            from app.engines.risk import risk_numbers as _rn
+            from app.services.risknumbers import ref_order_vnd, rel_dict
+
             rel = {"win_rate": clean(r.win_rate), "samples": r.samples, "regime": reg.regime, "regime_vi": REGIME_VI.get(reg.regime), "strategy": last_sig.strategy_code,
-                   "text": f"đúng {r.win_rate:.0f}% khi thị trường {REGIME_VI.get(reg.regime)} ({r.samples} lần)", "stand_aside": r.win_rate < 50}
+                   "text": f"đúng {r.win_rate:.0f}% khi thị trường {REGIME_VI.get(reg.regime)} ({r.samples} lần)", "stand_aside": r.win_rate < 50,
+                   "risk_numbers": _rn(rel_dict(r), sn.price, sn.stop_loss, await ref_order_vnd(db, user), sn.value_ma20)}
         else:
             rel = {"win_rate": None, "samples": r.samples if r else 0, "regime": reg.regime, "regime_vi": REGIME_VI.get(reg.regime), "strategy": last_sig.strategy_code,
                    "text": "chưa đủ 30 mẫu để đánh giá", "stand_aside": False}
@@ -491,9 +501,13 @@ async def signals(user: CurrentUser, db: DB, type: str | None = None, horizon: s
         stmt = stmt.where(Signal.symbol == symbol.upper())
     rows = (await db.execute(stmt.order_by(desc(Signal.trade_date), desc(Signal.score)).limit(limit))).scalars().all()
     snaps = {x.symbol: x for x in (await db.execute(select(StockSnapshot).where(StockSnapshot.symbol.in_({s.symbol for s in rows})))).scalars()} if rows else {}
+    from app.services.risknumbers import current_regime, numbers_for, ref_order_vnd
+
+    ref_order, regime_now, rel_cache = await ref_order_vnd(db, user), await current_regime(db), {}
     return [{**row(s, ["id", "symbol", "trade_date", "strategy_code", "signal_type", "horizon", "rating", "score", "price", "entry_low", "entry_high", "stop_loss", "take_profit_1", "take_profit_2", "risk_reward", "priority", "reliability_pct", "reliability_samples", "stand_aside", "is_chase", "risk_score", "title", "reasons", "facts"]),
              "rating_vi": RATING_VI.get(s.rating), "risk_total": clean(snaps[s.symbol].risk_total) if s.symbol in snaps else None, "risk_total_level": snaps[s.symbol].risk_total_level if s.symbol in snaps else None,
-             "risk_total_vi": RISK_VI_LBL.get(snaps[s.symbol].risk_total_level) if s.symbol in snaps else None} for s in rows]
+             "risk_total_vi": RISK_VI_LBL.get(snaps[s.symbol].risk_total_level) if s.symbol in snaps else None,
+             "risk_numbers": await numbers_for(db, s.strategy_code, s.regime_at_signal or regime_now, s.horizon, s.price, s.stop_loss, ref_order, getattr(snaps.get(s.symbol), "value_ma20", None), rel_cache)} for s in rows]
 
 
 @router.get("/signals/{signal_id}")

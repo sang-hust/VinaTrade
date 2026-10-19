@@ -119,6 +119,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Ghi nhận'));
     await _wait(tester, find.textContaining('Kiểm tra trước khi mua'), seconds: 20);
     await _wait(tester, find.text('Lệnh dự kiến'), seconds: 20);
+    await _wait(tester, find.text('Ba lựa chọn, xếp từ ít rủi ro nhất'), seconds: 20); // pretrade result lists three choices by risk
     // result box present (GREEN/YELLOW/RED)
     expect(find.byType(FilledButton), findsWidgets);
 

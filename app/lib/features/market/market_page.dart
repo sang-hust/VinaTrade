@@ -129,7 +129,7 @@ class _Signals extends ConsumerWidget {
         Padding(padding: const EdgeInsets.only(top: 12, bottom: 6), child: Row(children: [StatusDot(color), const SizedBox(width: 8), Text(title, style: TextStyle(fontWeight: FontWeight.w700, color: c.text)), const SizedBox(width: 6), Text('${rows.length}', style: TextStyle(color: c.faint))])),
         StockTable(
           rows: rows, subtitleKey: 'event', minWidth: 760,
-          columns: const [StockCol('price', 'Giá (VNĐ)', width: 90, build: priceCell), StockCol('change_pct', '+/−', width: 70, build: changeCell), StockCol('trend3', 'N·T·D', width: 70, build: _trend), StockCol('score', 'Điểm', width: 110, build: _score), StockCol('rating', 'Khuyến nghị', width: 120, build: _rating), StockCol('risk', 'Rủi ro', width: 96, build: riskCell), StockCol('rel', 'Độ tin cậy', width: 110, build: _rel)],
+          columns: const [StockCol('price', 'Giá (VNĐ)', width: 90, build: priceCell), StockCol('change_pct', '+/−', width: 70, build: changeCell), StockCol('trend3', 'N·T·D', width: 70, build: _trend), StockCol('score', 'Điểm', width: 110, build: _score), StockCol('rating', 'Khuyến nghị', width: 120, build: _rating), StockCol('risk', 'Rủi ro', width: 96, build: riskCell), StockCol('rel', 'Độ tin cậy', width: 150, build: _rel)],
           trailing: showBuy ? (ctx, r) => BuyButton(onPressed: () => showPretradeSheet(ctx, symbol: r['symbol'], horizon: hz)) : null,
         ),
       ]);
@@ -161,7 +161,11 @@ class _Signals extends ConsumerWidget {
     final p = asNum(r['reliability_pct']);
     if (r['stand_aside'] == true) return Pill('Đứng ngoài', color: ctx.vn.down, fontSize: 10.5);
     if (p == null) return Text('chưa đủ mẫu', style: TextStyle(color: ctx.vn.faint, fontSize: 11.5));
-    return Text('đúng ${Fmt.num_(p, decimals: 0)}% (${r['reliability_samples']})', style: TextStyle(color: ctx.vn.muted, fontSize: 12));
+    final n = asMap(r['risk_numbers']);
+    return Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('đúng ${Fmt.num_(p, decimals: 0)}% (${r['reliability_samples']})', style: TextStyle(color: ctx.vn.muted, fontSize: 12)),
+      if (n['short'] != null) Text(n['short'].toString(), style: TextStyle(color: ctx.vn.faint, fontSize: 11)),
+    ]);
   }
 }
 

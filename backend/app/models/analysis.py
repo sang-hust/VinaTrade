@@ -254,6 +254,13 @@ class SignalReliability(Base):
     samples: Mapped[int] = mapped_column(Integer, default=0)
     win_rate: Mapped[float | None] = mapped_column(Float)
     avg_return: Mapped[float | None] = mapped_column(Float)
+    # "three risk numbers" (least-risk suggestion): stop-hit share, 5th-percentile / worst return, average gain and loss
+    stop_rate: Mapped[float | None] = mapped_column(Float)
+    tp1_rate: Mapped[float | None] = mapped_column(Float)
+    p05_return: Mapped[float | None] = mapped_column(Float)
+    worst_return: Mapped[float | None] = mapped_column(Float)
+    avg_gain: Mapped[float | None] = mapped_column(Float)
+    avg_loss: Mapped[float | None] = mapped_column(Float)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 

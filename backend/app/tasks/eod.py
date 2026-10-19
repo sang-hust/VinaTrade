@@ -862,11 +862,17 @@ async def step_outcomes(db: AsyncSession, limit: int = 3000) -> dict:
 async def refresh_reliability(db: AsyncSession) -> int:
     rows = (await db.execute(text("""
         SELECT s.strategy_code, s.regime_at_signal AS regime, s.horizon, o.days, count(*) AS samples,
-               avg(case when o.result in ('TP_HIT','WIN') then 1.0 else 0.0 end)*100 AS win_rate, avg(o.return_pct) AS avg_return
+               avg(case when o.result in ('TP_HIT','WIN') then 1.0 else 0.0 end)*100 AS win_rate, avg(o.return_pct) AS avg_return,
+               avg(case when o.result = 'STOP_HIT' or o.hit_stop then 1.0 else 0.0 end)*100 AS stop_rate,
+               avg(case when o.result = 'TP_HIT' or o.hit_tp1 then 1.0 else 0.0 end)*100 AS tp1_rate,
+               percentile_cont(0.05) WITHIN GROUP (ORDER BY o.return_pct) AS p05_return, min(o.return_pct) AS worst_return,
+               avg(o.return_pct) FILTER (WHERE o.return_pct > 0) AS avg_gain, avg(o.return_pct) FILTER (WHERE o.return_pct < 0) AS avg_loss
         FROM signals s JOIN signal_outcomes o ON o.signal_id = s.id
         WHERE s.regime_at_signal IS NOT NULL GROUP BY 1,2,3,4"""))).all()
+    f2 = lambda x: round(float(x), 2) if x is not None else None
     for r in rows:
-        vals = dict(samples=int(r.samples), win_rate=round(float(r.win_rate), 1), avg_return=round(float(r.avg_return), 2))
+        vals = dict(samples=int(r.samples), win_rate=round(float(r.win_rate), 1), avg_return=round(float(r.avg_return), 2), stop_rate=f2(r.stop_rate), tp1_rate=f2(r.tp1_rate),
+                    p05_return=f2(r.p05_return), worst_return=f2(r.worst_return), avg_gain=f2(r.avg_gain), avg_loss=f2(r.avg_loss))
         stmt = insert(SignalReliability).values(strategy_code=r.strategy_code, regime=r.regime, horizon=r.horizon, days=int(r.days), **vals)
         await db.execute(stmt.on_conflict_do_update(index_elements=["strategy_code", "regime", "horizon", "days"], set_=vals))
     # strategy aggregate

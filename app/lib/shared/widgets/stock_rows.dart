@@ -162,6 +162,7 @@ class StockCard extends StatelessWidget {
               Text(Fmt.pct(asNum(r['change_pct'])), style: TextStyle(color: c.changeColor(asNum(r['change_pct'])), fontSize: 13)),
               if (r['rating_changed'] == true) ...[const SizedBox(width: 8), Pill('Đổi khuyến nghị', color: c.link, fontSize: 10)],
             ]),
+            if (asMap(r['risk_numbers'])['text'] != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(asMap(r['risk_numbers'])['text'].toString(), maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(color: c.muted, fontSize: 11.5, height: 1.3))),
           ]),
         ),
         const SizedBox(width: 10),

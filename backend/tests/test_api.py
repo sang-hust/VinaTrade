@@ -247,3 +247,18 @@ async def test_total_risk_in_analysis_and_ranking(client, token):
     assert {"risk.score_weights", "risk.score_params"} <= keys
     r = await client.put("/api/v1/admin/config/risk.score_weights", headers=_h(token), json={"value": {"volatility": 50, "liquidity": 20, "company": 20, "manipulation": 15, "event": 10, "correlation": 10}})
     assert r.status_code == 400 and r.json()["error"]["code"] == "WEIGHTS_SUM"
+
+
+async def test_risk_numbers_and_options(client, token):
+    r = await client.get("/api/v1/market/overview?horizon=MID", headers=_h(token))
+    assert r.status_code == 200
+    for b in (r.json()["signals"].get("buys") or []):
+        assert "risk_numbers" in b
+        if b["risk_numbers"]:
+            assert "text" in b["risk_numbers"] and "max_loss" in b["risk_numbers"]
+    r = await client.post("/api/v1/pretrade-check", headers=_h(token), json={"symbol": "FPT", "quantity": 300, "price": 50000, "stop_loss": 46000, "take_profit": 60000})
+    if r.status_code == 404:
+        pytest.skip("no snapshot data")
+    d = r.json()
+    assert [o["key"] for o in d["options"]] == ["none", "third", "full"] and d["options"][2]["quantity"] == 300 and d["options"][1]["quantity"] == 100
+    assert d["options"][2]["max_loss"] >= 300 * 4000 and "risk_numbers" in d
