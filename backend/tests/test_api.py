@@ -283,3 +283,18 @@ async def test_transaction_typo_and_cash_guards(client, token):
         assert r.status_code != 400 or r.json()["error"]["code"] != "PRICE_SUSPECT"  # confirmed price passes the typo guard
     finally:
         await client.delete(f"/api/v1/portfolios/{pid}", headers=_h(token))
+
+
+async def test_heat_limit_and_guard_fields(client, token):
+    r = await client.get("/api/v1/me/risk-limits", headers=_h(token))
+    assert r.status_code == 200 and "max_open_risk_pct" in r.json()
+    r = await client.put("/api/v1/me/risk-limits", headers=_h(token), json={"max_open_risk_pct": 5})
+    assert r.status_code == 200 and r.json()["max_open_risk_pct"] == 5
+    await client.put("/api/v1/me/risk-limits", headers=_h(token), json={"max_open_risk_pct": 6})
+    r = await client.get("/api/v1/me/risk-guard", headers=_h(token))
+    assert r.status_code == 200 and "equity_cap_pct" in r.json() and "drawdown_pct" in r.json()
+    r = await client.post("/api/v1/pretrade-check", headers=_h(token), json={"symbol": "FPT", "quantity": 100, "save": False})
+    if r.status_code == 404:
+        pytest.skip("no snapshot data")
+    codes = [i["code"] for i in r.json()["items"]]
+    assert "HEAT" in codes and "LIQUIDITY" in codes

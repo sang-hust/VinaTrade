@@ -9,9 +9,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.vntime import add_sessions, today_vn
 from app.engines.risk import correlated_groups, guard_decision
 from app.engines.scoring import RATING_VI
-from app.models import ActionItem, Portfolio, PriceDaily, RiskGuardEvent, RiskGuardStatus, TradePlan, TradePlanStep, User, UserRiskLimit
+from app.models import (
+    ActionItem,
+    Portfolio,
+    PriceDaily,
+    RiskGuardEvent,
+    RiskGuardStatus,
+    TradePlan,
+    TradePlanStep,
+    User,
+    UserRiskLimit,
+)
 from app.services.notify import create_alert
 from app.services.portfolio import period_pnl, portfolio_view, user_real_portfolios
+from app.services.sysconfig import get_config
 
 
 def fmt_vnd(v: float | None) -> str:
@@ -47,6 +58,29 @@ async def evaluate_guard(db: AsyncSession, user: User) -> dict:
     g.week_pnl_pct, g.month_pnl_pct, g.week_pnl_vnd, g.month_pnl_vnd = round(week_pct, 3), round(month_pct, 3), week_vnd, month_vnd
     g.evaluated_at = datetime.now(UTC)
     today = today_vn()
+    # drawdown from the 180-day peak of total real NAV → equity cap (feature: giảm tỷ trọng theo sụt giảm từ đỉnh)
+    dd = None
+    if pfs and nav > 0:
+        from app.engines.risk import drawdown_cap
+        from app.services.portfolio import nav_history
+
+        series: dict = {}
+        for pf in pfs:
+            for d, v in await nav_history(db, pf, today - timedelta(days=180), today):
+                series[d] = series.get(d, 0.0) + v
+        peak = max(series.values()) if series else nav
+        peak = max(peak, nav)
+        dd = round((1 - nav / peak) * 100, 3) if peak > 0 else 0.0
+        cap, _ = drawdown_cap(dd, await get_config(db, "risk.drawdown_steps"))
+        prev_cap = float(g.equity_cap_pct) if g.equity_cap_pct is not None else None
+        g.drawdown_pct, g.peak_nav, g.equity_cap_pct = dd, round(peak), cap
+        if cap is not None and prev_cap != cap:
+            db.add(RiskGuardEvent(user_id=user.id, kind="DRAWDOWN_CAP", detail={"drawdown_pct": dd, "equity_cap_pct": cap, "peak_nav": round(peak)}))
+            await create_alert(db, user, kind="GUARD", priority="RISK", title=f"Danh mục giảm {dd:.1f}% từ đỉnh",
+                               body=f"Giữ tối đa {cap:.0f}% tài sản ở cổ phiếu cho đến khi hồi phục. Kiểm tra trước khi mua sẽ chặn lệnh vượt mức này.", deeplink="/portfolio?tab=risk",
+                               dedupe_key=f"dd_cap:{cap:.0f}:{today.isoformat()}")
+    else:
+        g.drawdown_pct, g.peak_nav, g.equity_cap_pct = None, None, None
     decision = guard_decision(g.mode, week_pct, month_pct, float(lim.weekly_loss_limit_pct), float(lim.monthly_loss_limit_pct),
                               today, g.release_at, is_new_month=(today.day == 1 and g.triggered_at and g.triggered_at.date() < today.replace(day=1)))
     if decision == "ON" and nav > 0:
@@ -66,7 +100,7 @@ async def evaluate_guard(db: AsyncSession, user: User) -> dict:
                            body="Thời gian nghỉ đã hết. Hãy xem lại các khoản lỗ trước khi mở vị thế mới.", deeplink="/portfolio",
                            dedupe_key=f"guard_off:{today.isoformat()}")
     await db.flush()
-    return {"mode": g.mode, "week_pnl_pct": week_pct, "month_pnl_pct": month_pct, "release_at": g.release_at, "nav": nav}
+    return {"mode": g.mode, "week_pnl_pct": week_pct, "month_pnl_pct": month_pct, "release_at": g.release_at, "nav": nav, "drawdown_pct": dd, "equity_cap_pct": g.equity_cap_pct}
 
 
 async def _returns_frame(db: AsyncSession, symbols: list[str], sessions: int = 60) -> pd.DataFrame:
@@ -96,11 +130,20 @@ async def refresh_action_items(db: AsyncSession, user: User, pf: Portfolio, noti
             g.reason or "Lỗ vượt giới hạn tuần/tháng.", [{"code": "OPEN", "label": "Xem vị thế đang lỗ", "params": {"route": "/portfolio?tab=risk"}},
                                                         {"code": "OPEN", "label": "Giới hạn rủi ro", "params": {"route": "/account"}}],
             impact=abs(float(g.week_pnl_vnd or 0)))
-    if view["open_risk_pct"] > float(lim.monthly_loss_limit_pct) and view["positions"]:
-        add("URGENT", "MAX_LOSS", f"Nếu mọi mã cùng chạm cắt lỗ, bạn mất {view['open_risk_pct']:.1f}% tài sản, vượt giới hạn tháng {float(lim.monthly_loss_limit_pct):.0f}%.",
+    heat_cap = float(getattr(lim, "max_open_risk_pct", None) or 6.0)
+    if view["open_risk_pct"] > heat_cap and view["positions"]:
+        add("URGENT", "MAX_LOSS", f"Nhiệt danh mục {view['open_risk_pct']:.1f}%: nếu mọi mã cùng chạm cắt lỗ bạn mất {fmt_vnd(view['open_risk'])}, vượt mức {heat_cap:.0f}% tài sản.",
             "Giảm khối lượng hoặc nâng mức cắt lỗ ở các mã đang lãi.",
             [{"code": "OPEN", "label": "Xem kịch bản xấu", "params": {"route": "/portfolio?tab=risk"}}, {"code": "OPEN", "label": "Giới hạn rủi ro", "params": {"route": "/account"}}],
             impact=view["open_risk"])
+    if not pf.is_paper and g.equity_cap_pct is not None and view["positions"]:
+        exposure = view["market_value"] / nav * 100
+        cap = float(g.equity_cap_pct)
+        if exposure > cap:
+            add("RISK", "DRAWDOWN", f"Danh mục giảm {float(g.drawdown_pct or 0):.1f}% từ đỉnh: giữ tối đa {cap:.0f}% cổ phiếu, hiện {exposure:.0f}%.",
+                "Giảm dần các mã yếu nhất về mức này; không mua mới cho đến khi danh mục hồi phục.",
+                [{"code": "OPEN", "label": "Xem rủi ro", "params": {"route": "/portfolio?tab=risk"}}, {"code": "ACK", "label": "Đã hiểu", "params": {}}],
+                impact=(exposure - cap) / 100 * nav, key=f"DRAWDOWN:{cap:.0f}")
     plans = {p.symbol: p for p in (await db.execute(select(TradePlan).where(TradePlan.portfolio_id == pf.id, TradePlan.status == "ACTIVE"))).scalars()}
     for v in view["positions"]:
         stop = v.stop_loss or v.extra.get("sys_stop")
@@ -208,7 +251,10 @@ async def refresh_all_action_items(db: AsyncSession, users: list[User]) -> int:
 
 async def resolve_action(db: AsyncSession, user: User, item: ActionItem, action_code: str, params: dict) -> str:
     """Executes one of the item's buttons. Returns the result sentence. BUY-type actions never execute here (go through pretrade)."""
-    from app.services.trades import record_transaction, set_stop_loss  # local import to avoid cycles
+    from app.services.trades import (  # local import to avoid cycles
+        record_transaction,
+        set_stop_loss,
+    )
 
     allowed = {a["code"] for a in (item.actions or [])}
     if action_code not in allowed:

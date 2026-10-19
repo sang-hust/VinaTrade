@@ -97,6 +97,8 @@ CHECK_VI = {
     "CHASE": "Mua đuổi",
     "PRICE": "Giá nhập so với thị trường",
     "CASH": "Tiền mặt cho lệnh",
+    "HEAT": "Nhiệt danh mục sau lệnh",
+    "EXPOSURE": "Tỷ trọng cổ phiếu sau lệnh",
 }
 
 
@@ -125,6 +127,10 @@ class PretradeInput:
     market_price: float | None = None  # latest close: a typed price far from it is almost always a typo (5.600 vs 56.000)
     cash: float | None = None  # available cash; None = unknown
     uses_margin: bool = False
+    open_risk_vnd: float = 0.0  # portfolio heat before this order: sum of (price − stop) × qty over open positions
+    market_value: float = 0.0  # current stock exposure (for the equity cap)
+    equity_cap_pct: float | None = None  # min(regime cap, drawdown cap); None = no cap
+    equity_cap_reason: str | None = None
 
 
 def pretrade_check(i: PretradeInput) -> dict:
@@ -156,8 +162,16 @@ def pretrade_check(i: PretradeInput) -> dict:
     item("SECTOR", sec_pct <= float(i.limits.get("max_sector_pct", 40)), f"{sec_pct:.1f}%", f"≤ {float(i.limits.get('max_sector_pct', 40)):.0f}%")
     ev_ok = i.earnings_in_days is None or i.earnings_in_days > 5
     item("EVENTS", ev_ok, "Không có" if ev_ok else f"BCTC/GDKHQ trong {i.earnings_in_days} phiên", "Không có trong 5 phiên")
-    liq_ok = i.value_ma20 is None or order_value <= 0.10 * i.value_ma20
-    item("LIQUIDITY", liq_ok, f"{order_value / i.value_ma20 * 100:.1f}% GTGD TB20" if i.value_ma20 else "—", "≤ 10% GTGD TB20")
+    share = order_value / i.value_ma20 * 100 if i.value_ma20 else None
+    item("LIQUIDITY", share is None or share <= 5, f"{share:.1f}% GTGD TB20" if share is not None else "—", "≤ 5% GTGD TB20", red_if_fail=share is not None and share > 10,
+         note=None if share is None or share <= 5 else ("Lệnh lớn so với giao dịch một phiên: nếu sai sẽ khó thoát đúng giá." if share <= 10 else "Lệnh chiếm trên 10% giao dịch một phiên: gần như không thoát được đúng giá nếu sai."))
+    heat_pct = (i.open_risk_vnd + max_loss) / equity * 100
+    heat_cap = float(i.limits.get("max_open_risk_pct", 6.0))
+    item("HEAT", heat_pct <= heat_cap + 1e-9, f"{heat_pct:.1f}% tài sản", f"≤ {heat_cap:.0f}%", red_if_fail=True,
+         note=f"Tổng lỗ nếu mọi mã (kể cả lệnh này) cùng chạm cắt lỗ: {(i.open_risk_vnd + max_loss):,.0f} đ".replace(",", "."))
+    if i.equity_cap_pct is not None:
+        exp_pct = (i.market_value + order_value) / equity * 100
+        item("EXPOSURE", exp_pct <= i.equity_cap_pct + 1e-9, f"{exp_pct:.0f}% tài sản", f"≤ {i.equity_cap_pct:.0f}%", red_if_fail=True, note=i.equity_cap_reason)
     limit = i.chase_limits[0] if i.horizon == "SHORT" else i.chase_limits[1]
     chase = (i.gain_from_base_pct is not None and i.gain_from_base_pct > limit) or ((i.ceiling_streak or 0) >= 2)
     item("CHASE", not chase, f"Cách điểm phá nền {i.gain_from_base_pct:.0f}%" if i.gain_from_base_pct is not None else "—", f"≤ {limit}%")
@@ -501,3 +515,15 @@ def buy_options(price: float, stop_loss: float | None, quantity: int, value_ma20
         out.append({"key": key, "label": label, "quantity": int(q), "order_value": round(value), "max_loss": max_loss, "risk_pct": round(max_loss / equity * 100, 2) if equity else None,
                     "note": "Giữ tiền, chờ xác nhận hoặc điểm mua tốt hơn." if not frac else f"Mất tối đa {_vnd(max_loss)} ({max_loss / equity * 100:.1f}% tài sản) nếu chạm cắt lỗ." if equity else f"Mất tối đa {_vnd(max_loss)} nếu chạm cắt lỗ."})
     return out
+
+
+def drawdown_cap(drawdown_pct: float | None, steps: dict | None) -> tuple[float | None, str | None]:
+    """Equity cap (% of NAV) from the portfolio's drawdown from its 180-day peak: ≥ dd1 → cap1, ≥ dd2 → cap2."""
+    st = {"dd1": 5.0, "cap1": 50.0, "dd2": 10.0, "cap2": 25.0, **(steps or {})}
+    if drawdown_pct is None:
+        return None, None
+    if drawdown_pct >= float(st["dd2"]):
+        return float(st["cap2"]), f"Danh mục giảm {drawdown_pct:.1f}% từ đỉnh (bậc 2, từ {float(st['dd2']):.0f}%): giữ tối đa {float(st['cap2']):.0f}% cổ phiếu."
+    if drawdown_pct >= float(st["dd1"]):
+        return float(st["cap1"]), f"Danh mục giảm {drawdown_pct:.1f}% từ đỉnh (bậc 1, từ {float(st['dd1']):.0f}%): giữ tối đa {float(st['cap1']):.0f}% cổ phiếu."
+    return None, None

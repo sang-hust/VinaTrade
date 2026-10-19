@@ -228,7 +228,7 @@ class _Overview extends ConsumerWidget {
       KpiTile(label: 'Tổng tài sản', value: Fmt.money(asNum(k['nav']), full: true), animateFrom: asNum(k['nav']), format: (v) => Fmt.money(v, full: true), note: 'tiền mặt ${Fmt.money(asNum(k['cash']))}'),
       KpiTile(label: 'Lãi/lỗ chưa chốt', value: Fmt.money(asNum(k['unrealized_pnl'])), valueColor: c.changeColor(asNum(k['unrealized_pnl'])), note: Fmt.pct(asNum(k['unrealized_pnl_pct']))),
       KpiTile(label: 'Hôm nay', value: Fmt.pct(asNum(k['today_pnl_pct'])), valueColor: c.changeColor(asNum(k['today_pnl_pct'])), note: 'VN-Index ${Fmt.pct(asNum(k['vnindex_change_pct']))}'),
-      KpiTile(label: 'Lỗ tối đa nếu mọi mã chạm cắt lỗ', value: Fmt.pct(-(asNum(k['open_risk_pct']) ?? 0), decimals: 1), valueColor: c.downText, note: stress.map((s) => '${s['shock_pct']}%: ${Fmt.money(asNum(s['loss']))}').join(' · ')),
+      KpiTile(label: 'Nhiệt danh mục (lỗ nếu mọi mã chạm cắt lỗ)', value: Fmt.pct(-(asNum(k['open_risk_pct']) ?? 0), decimals: 1), valueColor: (asNum(k['open_risk_pct']) ?? 0) > (asNum(asMap(d['limits'])['max_open_risk_pct']) ?? 6) ? c.downText : c.text, note: 'giới hạn ${Fmt.num_(asNum(asMap(d['limits'])['max_open_risk_pct']) ?? 6, decimals: 0)}% · ${stress.map((s) => '${s['shock_pct']}%: ${Fmt.money(asNum(s['loss']))}').join(' · ')}'),
     ];
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       if (pf['is_paper'] == true) Padding(padding: const EdgeInsets.only(bottom: 8), child: Pill('Tiền ảo — không tính vào cầu dao và tỷ trọng', color: c.ai, dashed: true)),
@@ -410,7 +410,12 @@ class _RiskTab extends ConsumerWidget {
           const SizedBox(height: 10),
           LimitBar(label: 'Lỗ tháng so với giới hạn', value: (asNum(g['month_pnl_pct']) ?? 0) < 0 ? (asNum(g['month_pnl_pct']) ?? 0).toDouble() : 0, limit: (asNum(lim['monthly_loss_limit_pct']) ?? 6).toDouble(), valueText: '${Fmt.pct(asNum(g['month_pnl_pct']), decimals: 1)} / −${Fmt.num_(asNum(lim['monthly_loss_limit_pct']))}%'),
           const SizedBox(height: 10),
-          LimitBar(label: 'Lỗ tối đa nếu mọi mã chạm cắt lỗ', value: (asNum(k['open_risk_pct']) ?? 0).toDouble(), limit: (asNum(lim['monthly_loss_limit_pct']) ?? 6).toDouble(), valueText: '${Fmt.num_(asNum(k['open_risk_pct']))}% / ${Fmt.num_(asNum(lim['monthly_loss_limit_pct']))}%'),
+          LimitBar(label: 'Nhiệt danh mục: lỗ nếu mọi mã chạm cắt lỗ', value: (asNum(k['open_risk_pct']) ?? 0).toDouble(), limit: (asNum(lim['max_open_risk_pct']) ?? 6).toDouble(), valueText: '${Fmt.num_(asNum(k['open_risk_pct']))}% / ${Fmt.num_(asNum(lim['max_open_risk_pct']) ?? 6)}%'),
+          if (g['drawdown_pct'] != null) ...[
+            const SizedBox(height: 10),
+            LimitBar(label: 'Sụt giảm từ đỉnh 180 ngày', value: (asNum(g['drawdown_pct']) ?? 0).toDouble(), limit: 10, valueText: '−${Fmt.num_(asNum(g['drawdown_pct']))}%${g['equity_cap_pct'] != null ? ' → tối đa ${Fmt.num_(asNum(g['equity_cap_pct']), decimals: 0)}% cổ phiếu' : ''}'),
+            Padding(padding: const EdgeInsets.only(top: 4), child: Text(g['equity_cap_pct'] != null ? 'Đang giảm tỷ trọng theo sụt giảm: kiểm tra trước khi mua chặn lệnh đưa cổ phiếu vượt ${Fmt.num_(asNum(g['equity_cap_pct']), decimals: 0)}% tài sản.' : 'Giảm từ 5% từ đỉnh → tối đa 50% cổ phiếu; từ 10% → 25%.', style: TextStyle(color: c.muted, fontSize: 12))),
+          ],
           const SizedBox(height: 12),
           Wrap(spacing: 16, runSpacing: 6, children: [
             LabeledValue('Rủi ro mỗi lệnh', '≤ ${Fmt.num_(asNum(lim['max_risk_per_trade_pct']))}%'), LabeledValue('Tỷ trọng một mã', '≤ ${Fmt.num_(asNum(lim['max_position_pct']), decimals: 0)}%'),

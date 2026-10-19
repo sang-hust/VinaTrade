@@ -118,7 +118,7 @@ async def set_risk_limits(body: RiskLimitsIn, user: CurrentUser, db: DB):
     defaults = await get_config(db, "risk.defaults")
     data = body.model_dump(exclude_unset=True)
     # BR-25: members may only tighten the admin defaults; admin can set anything
-    tighten_max = {"max_risk_per_trade_pct", "stop_loss_pct", "max_position_pct", "max_sector_pct", "max_correlated_group_pct", "weekly_loss_limit_pct", "monthly_loss_limit_pct"}
+    tighten_max = {"max_risk_per_trade_pct", "stop_loss_pct", "max_position_pct", "max_sector_pct", "max_correlated_group_pct", "weekly_loss_limit_pct", "monthly_loss_limit_pct", "max_open_risk_pct"}
     for k, v in data.items():
         if v is None:
             continue

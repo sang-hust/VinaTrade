@@ -88,6 +88,7 @@ class UserRiskLimit(Base):
     monthly_loss_limit_pct: Mapped[float] = mapped_column(Numeric(6, 3), default=6.0)
     cooldown_sessions: Mapped[int] = mapped_column(Integer, default=5)
     min_risk_reward: Mapped[float] = mapped_column(Numeric(5, 2), default=2.0)
+    max_open_risk_pct: Mapped[float] = mapped_column(Numeric(6, 3), default=6.0)  # portfolio heat: sum of (price − stop) × qty ≤ this % of NAV
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user: Mapped[User] = relationship(back_populates="risk_limits")
@@ -106,6 +107,10 @@ class RiskGuardStatus(Base):
     release_at: Mapped[date | None] = mapped_column(Date)
     reason: Mapped[str | None] = mapped_column(Text)
     evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # drawdown de-risking: NAV vs 180-day peak; equity_cap_pct caps stock exposure (None = no cap)
+    drawdown_pct: Mapped[float | None] = mapped_column(Numeric(8, 3))
+    peak_nav: Mapped[float | None] = mapped_column(Numeric(18, 0))
+    equity_cap_pct: Mapped[float | None] = mapped_column(Numeric(6, 2))
 
     user: Mapped[User] = relationship(back_populates="guard")
 

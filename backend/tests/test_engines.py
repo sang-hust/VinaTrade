@@ -206,3 +206,24 @@ def test_pretrade_price_and_cash_guards():
     its = {it["code"]: it for it in ok["items"]}
     assert its["PRICE"]["level"] == "GREEN" and its["CASH"]["level"] == "GREEN"
     assert "CASH" not in {it["code"] for it in pretrade_check(PretradeInput(**base, market_price=None, cash=None))["items"]}
+
+
+def test_portfolio_heat_exposure_and_exit_liquidity():
+    from app.engines.risk import PretradeInput, drawdown_cap, pretrade_check
+
+    base = dict(symbol="HPG", quantity=1000, price=20000, stop_loss=18400, take_profit=24000, horizon="MID", equity=100e6, position_value=0, sector_value=0, regime="UPTREND",
+                guard_mode="NORMAL", status_flags=[], value_ma20=300e9, gain_from_base_pct=2, ceiling_streak=0, earnings_in_days=None, limits={"max_open_risk_pct": 6.0, "max_risk_per_trade_pct": 2.0})
+    # heat: 4.5% already at risk + 1.6% from this order → 6.1% > 6% cap
+    r = pretrade_check(PretradeInput(**base, open_risk_vnd=4.5e6))
+    its = {it["code"]: it for it in r["items"]}
+    assert its["HEAT"]["level"] == "RED" and "EXPOSURE" not in its
+    assert {it["code"]: it["level"] for it in pretrade_check(PretradeInput(**base, open_risk_vnd=1e6))["items"]}["HEAT"] == "GREEN"
+    # exposure cap from drawdown: 60M stocks + 20M order = 80% > 50%
+    r = pretrade_check(PretradeInput(**base, market_value=60e6, equity_cap_pct=50, equity_cap_reason="giảm 6% từ đỉnh"))
+    its = {it["code"]: it for it in r["items"]}
+    assert its["EXPOSURE"]["level"] == "RED" and its["EXPOSURE"]["note"] == "giảm 6% từ đỉnh"
+    # exit liquidity: 20M order vs 150M/session = 13% → RED; vs 300M = 6.7% → YELLOW; vs 3B → GREEN
+    assert {it["code"]: it["level"] for it in pretrade_check(PretradeInput(**{**base, "value_ma20": 150e6}))["items"]}["LIQUIDITY"] == "RED"
+    assert {it["code"]: it["level"] for it in pretrade_check(PretradeInput(**{**base, "value_ma20": 300e6}))["items"]}["LIQUIDITY"] == "YELLOW"
+    assert {it["code"]: it["level"] for it in pretrade_check(PretradeInput(**{**base, "value_ma20": 3e9}))["items"]}["LIQUIDITY"] == "GREEN"
+    assert drawdown_cap(3.0, None) == (None, None) and drawdown_cap(6.0, None)[0] == 50 and drawdown_cap(12.0, {"dd2": 10, "cap2": 20})[0] == 20

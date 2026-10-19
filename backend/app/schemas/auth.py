@@ -98,6 +98,7 @@ class RiskLimitsOut(ORM):
     monthly_loss_limit_pct: float
     cooldown_sessions: int
     min_risk_reward: float
+    max_open_risk_pct: float = 6.0
 
 
 class RiskLimitsIn(BaseModel):
@@ -110,6 +111,7 @@ class RiskLimitsIn(BaseModel):
     monthly_loss_limit_pct: float | None = None
     cooldown_sessions: int | None = None
     min_risk_reward: float | None = None
+    max_open_risk_pct: float | None = None
 
 
 class GuardOut(ORM):
@@ -122,6 +124,9 @@ class GuardOut(ORM):
     release_at: datetime | None
     reason: str | None
     evaluated_at: datetime | None
+    drawdown_pct: float | None = None
+    peak_nav: float | None = None
+    equity_cap_pct: float | None = None
 
 
 class UserOut(ORM):

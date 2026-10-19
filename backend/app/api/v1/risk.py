@@ -84,6 +84,18 @@ async def pretrade(body: PretradeIn, user: CurrentUser, db: DB):
     reg = (await db.execute(select(MarketRegime).order_by(desc(MarketRegime.trade_date)).limit(1))).scalar_one_or_none()
     regime = reg.regime if reg else "UPTREND"
     chase = await get_config(db, "risk.chase")
+    # equity cap: regime cap (regime.equity) ∧ drawdown cap (risk guard), real portfolios only
+    cap, cap_reason = None, None
+    if pf is not None and not pf.is_paper:
+        from app.engines.risk import drawdown_cap
+
+        regime_caps = await get_config(db, "regime.equity")
+        rc = regime_caps.get(regime)
+        if rc is not None and float(rc) < 100:
+            cap, cap_reason = float(rc), f"Thị trường {({'UPTREND': 'tăng', 'PRESSURE': 'chịu áp lực', 'CORRECTION': 'điều chỉnh', 'DOWNTREND': 'giảm'}).get(regime, regime)}: tỷ trọng cổ phiếu tối đa {float(rc):.0f}%."
+        dc, dreason = drawdown_cap(float(g.drawdown_pct) if g.drawdown_pct is not None else None, await get_config(db, "risk.drawdown_steps"))
+        if dc is not None and (cap is None or dc < cap):
+            cap, cap_reason = dc, dreason
     rel = None
     sig_codes = [s.get("code") for s in (sn.signals_today or []) if isinstance(s, dict)]
     for code in sig_codes:
@@ -95,9 +107,11 @@ async def pretrade(body: PretradeIn, user: CurrentUser, db: DB):
         symbol=sym, quantity=int(qty), price=price, stop_loss=stop, take_profit=tp, horizon=hz, equity=equity, position_value=pos_value, sector_value=sector_value,
         regime=regime, guard_mode=g.mode if pf is None or not pf.is_paper else "NORMAL", status_flags=st.status_flags or [], value_ma20=sn.value_ma20,
         gain_from_base_pct=sn.gain_from_base_pct, ceiling_streak=sn.ceiling_streak, earnings_in_days=sn.earnings_in_days,
-        limits={"max_risk_per_trade_pct": float(lim.max_risk_per_trade_pct), "max_position_pct": float(lim.max_position_pct), "max_sector_pct": float(lim.max_sector_pct), "min_risk_reward": float(lim.min_risk_reward)},
+        limits={"max_risk_per_trade_pct": float(lim.max_risk_per_trade_pct), "max_position_pct": float(lim.max_position_pct), "max_sector_pct": float(lim.max_sector_pct), "min_risk_reward": float(lim.min_risk_reward),
+                "max_open_risk_pct": float(getattr(lim, "max_open_risk_pct", None) or 6.0)},
         reliability_pct=rel.win_rate if rel else None, reliability_samples=rel.samples if rel else None, chase_limits=(int(chase.get("SHORT", 15)), int(chase.get("MID", 20))),
         market_price=float(sn.price), cash=float(view["cash"]) if view else None, uses_margin=bool(pf.uses_margin) if pf else False,
+        open_risk_vnd=float(view["open_risk"]) if view else 0.0, market_value=float(view["market_value"]) if view else 0.0, equity_cap_pct=cap, equity_cap_reason=cap_reason,
     ))
     check_id = None
     if body.save:

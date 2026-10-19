@@ -61,7 +61,10 @@ class _AppShellState extends ConsumerState<AppShell> {
       ])));
     }
     final defensive = session.defensive || rt.guardMode == 'DEFENSIVE';
-    final banner = defensive ? DefensiveBanner(releaseAt: _fmtDate(session.guard['release_at']), reason: session.guard['reason']?.toString(), onWhy: () => context.push('/portfolio?tab=risk')) : null;
+    final cap = asNum(session.guard['equity_cap_pct']);
+    final banner = defensive
+        ? DefensiveBanner(releaseAt: _fmtDate(session.guard['release_at']), reason: session.guard['reason']?.toString(), onWhy: () => context.push('/portfolio?tab=risk'))
+        : (cap != null ? InfoBanner('Danh mục giảm ${Fmt.num_(asNum(session.guard['drawdown_pct']))}% từ đỉnh: giữ tối đa ${Fmt.num_(cap, decimals: 0)}% cổ phiếu.', color: c.ref, icon: Icons.trending_down, trailing: TextButton(onPressed: () => context.push('/portfolio?tab=risk'), child: Text('Chi tiết', style: TextStyle(color: c.ref, fontSize: 12.5)))) : null);
     final body = Column(children: [
       if (banner != null) banner,
       if (!rt.connected && session.authenticated && !session.loading) InfoBanner('Mất kết nối thời gian thực. Đang hiển thị dữ liệu gần nhất.', color: c.ref, icon: Icons.wifi_off),

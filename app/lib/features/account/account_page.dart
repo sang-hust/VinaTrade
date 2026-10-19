@@ -139,6 +139,7 @@ class _RiskLimitsState extends ConsumerState<_RiskLimits> {
         _stepper('Nhóm tương quan', 'max_correlated_group_pct', 5, decimals: 0),
         _stepper('Cầu dao: lỗ tuần', 'weekly_loss_limit_pct', 0.5),
         _stepper('Cầu dao: lỗ tháng', 'monthly_loss_limit_pct', 1),
+        _stepper('Nhiệt danh mục tối đa', 'max_open_risk_pct', 0.5, help: 'tổng lỗ nếu mọi mã cùng chạm cắt lỗ'),
         _stepper('Nghỉ sau khi cầu dao bật', 'cooldown_sessions', 1, unit: ' phiên', decimals: 0),
         _stepper('Lãi/lỗ tối thiểu', 'min_risk_reward', 0.5, unit: '×'),
       ]),

@@ -16,9 +16,10 @@ DEFAULTS: dict[str, tuple[object, str, str]] = {
     "base.params": ({"min_length": 25, "max_depth": 0.35, "pivot_wing": 10, "breakout_vol_ratio": 1.5}, "Tham số nhận diện nền giá", "strategy"),
     "regime.equity": ({"UPTREND": 80, "PRESSURE": 60, "CORRECTION": 40, "DOWNTREND": 20}, "Tỷ trọng cổ phiếu tối đa theo trạng thái thị trường (%)", "scoring"),
     "risk.defaults": ({"max_risk_per_trade_pct": 1.5, "stop_loss_pct": 8.0, "max_position_pct": 20.0, "max_sector_pct": 40.0, "max_correlated_group_pct": 40.0,
-                       "weekly_loss_limit_pct": 3.0, "monthly_loss_limit_pct": 6.0, "cooldown_sessions": 5, "min_risk_reward": 2.0},
+                       "weekly_loss_limit_pct": 3.0, "monthly_loss_limit_pct": 6.0, "cooldown_sessions": 5, "min_risk_reward": 2.0, "max_open_risk_pct": 6.0},
                       "Giới hạn rủi ro mặc định cho người dùng mới", "risk"),
     "risk.company_thresholds": ({"downgrade": 60, "no_buy": 80}, "Điểm rủi ro doanh nghiệp: hạ một bậc / không phát tín hiệu mua", "risk"),
+    "risk.drawdown_steps": ({"dd1": 5.0, "cap1": 50.0, "dd2": 10.0, "cap2": 25.0}, "Giảm tỷ trọng theo sụt giảm từ đỉnh: giảm ≥ dd1% → tối đa cap1% cổ phiếu; ≥ dd2% → cap2%", "risk"),
     "risk.chase": ({"SHORT": 15, "MID": 20, "ceiling_streak": 2}, "Ngưỡng mua đuổi (% cách điểm phá nền) theo khung", "risk"),
     "risk.correlation": ({"rho": 0.8, "sessions": 60}, "Ngưỡng tương quan nhóm tập trung ẩn", "risk"),
     "risk.score_weights": (DEFAULT_RISK_WEIGHTS, "Trọng số 6 thành phần của điểm rủi ro tổng hợp (tổng 100)", "risk"),
@@ -61,7 +62,10 @@ CONFIG_META: dict[str, dict] = {
         _f("max_risk_per_trade_pct", "Lỗ tối đa mỗi lệnh", "% tài sản", step=0.1), _f("stop_loss_pct", "Cắt lỗ mặc định", "%", step=0.5),
         _f("max_position_pct", "Tỷ trọng một mã tối đa", "%"), _f("max_sector_pct", "Tỷ trọng một ngành tối đa", "%"), _f("max_correlated_group_pct", "Nhóm tương quan tối đa", "%"),
         _f("weekly_loss_limit_pct", "Giới hạn lỗ tuần", "%", step=0.5), _f("monthly_loss_limit_pct", "Giới hạn lỗ tháng", "%", step=0.5),
-        _f("cooldown_sessions", "Nghỉ sau khi chạm giới hạn", "phiên", type_="int"), _f("min_risk_reward", "Tỷ lệ lợi nhuận/rủi ro tối thiểu", "lần", step=0.1)]},
+        _f("cooldown_sessions", "Nghỉ sau khi chạm giới hạn", "phiên", type_="int"), _f("min_risk_reward", "Tỷ lệ lợi nhuận/rủi ro tối thiểu", "lần", step=0.1),
+        _f("max_open_risk_pct", "Nhiệt danh mục tối đa (tổng lỗ nếu mọi mã chạm cắt lỗ)", "% tài sản", step=0.5)]},
+    "risk.drawdown_steps": {"label": "Giảm tỷ trọng theo sụt giảm từ đỉnh", "kind": "form", "fields": [
+        _f("dd1", "Bậc 1: danh mục giảm từ đỉnh", "%", step=0.5), _f("cap1", "→ tối đa cổ phiếu", "% tài sản"), _f("dd2", "Bậc 2: danh mục giảm từ đỉnh", "%", step=0.5), _f("cap2", "→ tối đa cổ phiếu", "% tài sản")]},
     "risk.company_thresholds": {"label": "Điểm rủi ro doanh nghiệp", "kind": "form", "fields": [
         _f("downgrade", "Hạ một bậc khuyến nghị từ", "điểm"), _f("no_buy", "Không phát tín hiệu mua từ", "điểm")]},
     "risk.chase": {"label": "Ngưỡng mua đuổi", "kind": "form", "fields": [
