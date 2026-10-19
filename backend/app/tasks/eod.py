@@ -826,37 +826,40 @@ _RATING_CHANGES: list[tuple[str, str, str]] = []
 
 
 async def step_outcomes(db: AsyncSession, limit: int = 3000) -> dict:
-    """Evaluate signal outcomes after 5/10/20/60 sessions and refresh reliability (4.6k)."""
+    """Evaluate signal outcomes after 5/10/20/60 sessions with the realistic simulation (engines.simulate) and refresh
+    reliability (4.6k). Same rules as the backtest: next-open entry, T+2, gap-aware stop/TP, fees + slippage."""
+    from app.tasks.backfill import sim_params
+
+    sim = await sim_params(db)
     d = last_closed_trading_day()
     n = 0
     for days in (5, 10, 20, 60):
-        cutoff = d - timedelta(days=int(days * 1.45) + 3)
+        cutoff = d - timedelta(days=int(days * 1.45) + 5)
         done = select(SignalOutcome.signal_id).where(SignalOutcome.days == days)
         sigs = (await db.execute(select(Signal).where(Signal.trade_date <= cutoff, Signal.id.notin_(done)).order_by(Signal.trade_date).limit(limit))).scalars().all()
         for s in sigs:
-            rows = (await db.execute(select(PriceDaily.close, PriceDaily.high, PriceDaily.low).where(PriceDaily.symbol == s.symbol, PriceDaily.trade_date > s.trade_date).order_by(PriceDaily.trade_date).limit(days))).all()
-            if len(rows) < days:
+            rows = (await db.execute(select(PriceDaily.open, PriceDaily.high, PriceDaily.low, PriceDaily.close).where(PriceDaily.symbol == s.symbol, PriceDaily.trade_date >= s.trade_date)
+                                     .order_by(PriceDaily.trade_date).limit(days + 2))).all()
+            if len(rows) < days + 2:
                 continue
-            closes = [r[0] for r in rows]
-            ret = (closes[-1] / s.price - 1) * 100
-            mg = (max(r[1] for r in rows) / s.price - 1) * 100
-            ml = (min(r[2] for r in rows) / s.price - 1) * 100
-            hit_tp = bool(s.take_profit_1 and any(r[1] >= s.take_profit_1 for r in rows))
-            hit_stop = bool(s.stop_loss and any(r[2] <= s.stop_loss for r in rows))
-            if hit_tp and hit_stop:
-                # which first?
-                first_tp = next(k for k, r in enumerate(rows) if r[1] >= s.take_profit_1)
-                first_sl = next(k for k, r in enumerate(rows) if r[2] <= s.stop_loss)
-                hit_tp, hit_stop = first_tp <= first_sl, first_sl < first_tp
-            if s.signal_type in ("SELL", "TAKE_PROFIT"):
-                result = "WIN" if ret < 0 else "LOSS"
-            else:
-                result = "TP_HIT" if hit_tp else ("STOP_HIT" if hit_stop else ("WIN" if ret > 0 else "LOSS"))
-            db.add(SignalOutcome(signal_id=s.id, days=days, return_pct=round(ret, 2), max_gain_pct=round(mg, 2), max_loss_pct=round(ml, 2), hit_tp1=hit_tp, hit_stop=hit_stop, result=result))
+            liq = (await db.execute(select(IndicatorDaily.value_ma20).where(IndicatorDaily.symbol == s.symbol, IndicatorDaily.trade_date == s.trade_date))).scalar()
+            o, h, lo, c = (np.array([r[k] for r in rows], dtype=float) for k in range(4))
+            res = simulate_one(o, h, lo, c, s, days, sim, liq)
+            if res is None:
+                continue
+            db.add(SignalOutcome(signal_id=s.id, **res))
             n += 1
         await db.flush()
     rel = await refresh_reliability(db)
     return {"outcomes": n, "reliability_rows": rel}
+
+
+def simulate_one(o, h, lo, c, s: Signal, days: int, sim: dict, value_ma20: float | None) -> dict | None:
+    from app.engines.simulate import outcomes_for_arrays, slippage_for
+
+    outs = outcomes_for_arrays(o, h, lo, c, 0, s.stop_loss, s.take_profit_1, s.signal_type, fee_pct=sim["fee_pct"], tax_pct=sim["tax_pct"], settlement_sessions=sim["settlement_sessions"],
+                               slippage_pct=slippage_for(sim["order_value_vnd"], value_ma20))
+    return next((x for x in outs if x["days"] == days), None)
 
 
 async def refresh_reliability(db: AsyncSession) -> int:

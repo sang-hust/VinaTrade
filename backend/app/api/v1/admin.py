@@ -730,7 +730,7 @@ async def strategy_performance(admin: AdminUser, db: DB, months: int = 12, days:
     for v in strat_rows.values():
         v["suggestion"] = _suggest(v["cells"])
     f = lambda x, d=1: round(float(x), d) if x is not None else None
-    return {"months": months, "days": days, "regimes": ["UP", "PRESSURE", "DOWN"], "fee_note": "Sau phí 0,15% và thuế 0,1%",
+    return {"months": months, "days": days, "regimes": ["UP", "PRESSURE", "DOWN"], "fee_note": "Mô phỏng sát thực tế: mua giá mở cửa phiên sau, bán sớm nhất T+2, cắt lỗ/chốt lời theo giá mở cửa khi có gap, trừ phí 0,15%×2, thuế 0,1% và trượt giá theo thanh khoản",
             "kpis": {"buy_signals": int(kpi.n or 0), "tp1_rate": f(kpi.tp1), "target_tp1_rate": 55, "avg_return": f(kpi.ar, 2), "excess_vs_index": f(kpi.excess, 2), "vnindex_return": f(kpi.idx, 2)},
             "by_strategy_regime": list(strat_rows.values()),
             "by_rating": [{"rating": r.rating, "samples": int(r.n), "win_rate": f(r.win_rate), "avg_return": f(r.avg_return, 2), "excess": f(r.excess, 2)} for r in by_rating],

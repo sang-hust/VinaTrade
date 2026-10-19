@@ -241,6 +241,11 @@ class SignalOutcome(Base):
     hit_tp1: Mapped[bool | None] = mapped_column(Boolean)
     hit_stop: Mapped[bool | None] = mapped_column(Boolean)
     result: Mapped[str | None] = mapped_column(String(12))  # TP_HIT | STOP_HIT | WIN | LOSS | OPEN
+    # realistic simulation (engines.simulate): next-open entry, T+2, gap-aware stop/TP, fees + slippage
+    entry_price: Mapped[float | None] = mapped_column(Float)
+    exit_price: Mapped[float | None] = mapped_column(Float)
+    exit_reason: Mapped[str | None] = mapped_column(String(8))  # STOP | TP | TIME
+    exit_sessions: Mapped[int | None] = mapped_column(Integer)
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

@@ -227,3 +227,37 @@ def test_portfolio_heat_exposure_and_exit_liquidity():
     assert {it["code"]: it["level"] for it in pretrade_check(PretradeInput(**{**base, "value_ma20": 300e6}))["items"]}["LIQUIDITY"] == "YELLOW"
     assert {it["code"]: it["level"] for it in pretrade_check(PretradeInput(**{**base, "value_ma20": 3e9}))["items"]}["LIQUIDITY"] == "GREEN"
     assert drawdown_cap(3.0, None) == (None, None) and drawdown_cap(6.0, None)[0] == 50 and drawdown_cap(12.0, {"dd2": 10, "cap2": 20})[0] == 20
+
+
+def test_realistic_simulation_entry_t2_gap_fees():
+    import numpy as np
+
+    from app.engines.simulate import outcomes_for_arrays, simulate_trade
+
+    # sessions: 0 = signal day close 100; 1 = next open 101 (entry); 2 = flat; 3 = gap down open 88 (stop 92 → fills at 88)
+    o = np.array([99, 101, 101, 88, 90, 92, 93, 94, 95, 96, 97, 98], dtype=float)
+    h = o + 2
+    lo = o - 2
+    c = o + 1
+    r = simulate_trade(o, h, lo, c, 0, stop=92, tp1=120, signal_type="BUY", days=10, fee_pct=0.15, tax_pct=0.1, slippage_pct=0.0, settlement_sessions=2)
+    assert r["exit_reason"] == "STOP" and r["exit_price"] == 88 and r["entry_price"] == 101 and r["exit_sessions"] == 2
+    assert r["return_pct"] == round((88 / 101 - 1) * 100 - 0.4, 2) and r["result"] == "STOP_HIT" and r["hit_stop"]
+    # T+2: a stop touched on the entry session or the next one cannot be executed yet
+    lo2 = lo.copy()
+    lo2[1] = 80
+    lo2[2] = 80
+    lo2[3:] = 95
+    o2 = o.copy()
+    o2[3:] = 100
+    r2 = simulate_trade(o2, o2 + 2, lo2, o2 + 1, 0, stop=92, tp1=120, signal_type="BUY", days=10, slippage_pct=0.0)
+    assert r2["exit_reason"] == "TIME" and not r2["hit_stop"]
+    # take profit through a gap up fills at the open; slippage lowers the result
+    o3 = np.array([99, 101, 101, 125, 126, 127, 128, 129, 130, 131, 132, 133], dtype=float)
+    r3 = simulate_trade(o3, o3 + 1, o3 - 1, o3, 0, stop=92, tp1=120, signal_type="BUY", days=10, slippage_pct=0.0)
+    r3s = simulate_trade(o3, o3 + 1, o3 - 1, o3, 0, stop=92, tp1=120, signal_type="BUY", days=10, slippage_pct=1.0)
+    assert r3["exit_reason"] == "TP" and r3["exit_price"] == 125 and r3s["return_pct"] < r3["return_pct"]
+    # sell signals: right when the price is lower than the next open after `days`
+    rs = simulate_trade(o, h, lo, c, 0, stop=None, tp1=None, signal_type="SELL", days=5, slippage_pct=0.0)
+    assert rs["result"] == "WIN"
+    # window shorter than days → nothing
+    assert outcomes_for_arrays(o, h, lo, c, 0, 92, 120, "BUY", slippage_pct=0.0)[-1]["days"] == 10

@@ -29,6 +29,7 @@ JOB_INFO: dict[str, tuple[str, str, str]] = {  # name: (label, schedule, queue)
     "coach_weekly": ("Huấn luyện viên AI hằng tuần", "09:00 thứ Bảy", "ai"),
     "backup": ("Sao lưu cơ sở dữ liệu", "01:30 hằng ngày", "system"),
     "strategy_backtest": ("Backtest toàn bộ chiến lược", "02:00 Chủ nhật", "backtest"),
+    "outcomes_recompute": ("Tính lại kết quả mọi tín hiệu (mô phỏng T+2, phí, trượt giá)", "thủ công", "backtest"),
     "extras_backfill": ("Nạp lại sự kiện, dòng tiền lịch sử", "thủ công", "ingest"),
     "price_file_import": ("Nhập file giá", "thủ công", "ingest"),
 }

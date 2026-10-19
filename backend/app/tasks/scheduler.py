@@ -105,6 +105,10 @@ async def run_named(name: str, triggered_by: str = "admin"):
         from app.tasks.backfill import backfill
 
         return await run_job("strategy_backtest", lambda db: backfill(db, years=5), triggered_by)
+    if name == "outcomes_recompute":
+        from app.tasks.backfill import recompute_outcomes
+
+        return await run_job("outcomes_recompute", recompute_outcomes, triggered_by)
     if name.startswith("strategy_backtest:"):
         from app.tasks.backfill import backtest_draft
 
