@@ -1,12 +1,12 @@
 {
-    "name": "vinatrade",
-    "short_name": "vinatrade",
-    "start_url": ".",
+    "name": "Vinatrade",
+    "short_name": "Vinatrade",
+    "start_url": "/",
     "display": "standalone",
     "background_color": "#0B1119",
     "theme_color": "#2F6FE0",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "description": "Phân tích, lọc cổ phiếu và cảnh báo đầu tư chứng khoán Việt Nam",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {
@@ -31,5 +31,6 @@
             "type": "image/png",
             "purpose": "maskable"
         }
-    ]
+    ],
+    "scope": "/"
 }

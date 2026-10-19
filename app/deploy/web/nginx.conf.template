@@ -1,0 +1,31 @@
+server {
+  listen ${PORT};
+  server_name _;
+  root /usr/share/nginx/html;
+
+  gzip on;
+  gzip_types text/plain text/css application/javascript application/json application/wasm image/svg+xml;
+  gzip_min_length 1024;
+
+  add_header X-Content-Type-Options nosniff always;
+  add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+  # App shell & bootstrap: always revalidate so a new deploy is picked up immediately.
+  location ~* ^/(index\.html|flutter_bootstrap\.js|flutter_service_worker\.js|main\.dart\.js|manifest\.json|version\.json)$ {
+    add_header Cache-Control "no-cache" always;
+    try_files $uri =404;
+  }
+
+  # Engine, fonts, icons, images: cache for a week.
+  location ~* \.(wasm|png|jpg|svg|ico|ttf|otf|woff2?|json|js|mjs)$ {
+    add_header Cache-Control "public, max-age=604800" always;
+    try_files $uri =404;
+  }
+
+  # Path URLs (/stocks/FPT, /portfolio/...) are client routes → serve the app.
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+
+  location = /healthz { return 200 "ok"; add_header Content-Type text/plain; }
+}

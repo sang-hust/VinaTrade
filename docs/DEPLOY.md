@@ -71,7 +71,17 @@ flutter run --release -d <iphone> --dart-define=API_BASE_URL=https://<domain>/ap
 flutter build web --release --dart-define=API_BASE_URL=https://<domain>/api/v1
 ```
 
-Web: sau khi có domain web, đặt `CORS_ORIGINS=https://<web domain>` và `PUBLIC_WEB_URL` trên service API.
+### Web (service `vinatrade-web`, nginx tĩnh)
+
+Đang chạy tại https://vinatrade-web-production.up.railway.app. Deploy lại sau mỗi thay đổi giao diện:
+
+```bash
+app/deploy/deploy_web.sh        # build Flutter web trỏ vào API production, đóng gói nginx, railway up --service vinatrade-web
+```
+
+Lần đầu tạo service: `railway add --service vinatrade-web`, `railway domain --service vinatrade-web`.
+Service API cần `CORS_ORIGINS=https://vinatrade-web-production.up.railway.app` và `PUBLIC_WEB_URL` cùng giá trị
+(nhiều origin thì ngăn cách bằng dấu phẩy). nginx trả `index.html` cho mọi đường dẫn (deep link như `/stocks/FPT`), kiểm tra sống ở `/healthz`.
 
 ## Tuỳ chọn
 
