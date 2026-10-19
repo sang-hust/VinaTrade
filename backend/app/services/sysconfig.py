@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engines.risk import DEFAULT_RISK_PARAMS, DEFAULT_RISK_WEIGHTS
-from app.engines.scoring import DEFAULT_WEIGHTS
+from app.engines.scoring import DEFAULT_PLAN_PARAMS, DEFAULT_WEIGHTS
 from app.engines.strategies import DEFAULT_PARAMS
 from app.ingestion.icb import SECTOR_MACRO_RULES
 from app.models import SystemConfig
@@ -13,10 +13,11 @@ DEFAULTS: dict[str, tuple[object, str, str]] = {
     "scoring.weights": (DEFAULT_WEIGHTS, "Trọng số điểm tổng hợp theo khung (kỹ thuật, cơ bản, ngành, nền giá & AI), tổng 100", "scoring"),
     "scoring.thresholds": ({"STRONG_BUY": 80, "BUY": 65, "HOLD": 50, "REDUCE": 35}, "Ngưỡng xếp loại khuyến nghị", "scoring"),
     "strategy.params": (DEFAULT_PARAMS, "Tham số chiến lược tín hiệu", "strategy"),
+    "plan.params": (DEFAULT_PLAN_PARAMS, "Đặt cắt lỗ / chốt lời cho kế hoạch giao dịch (nghiên cứu 4b)", "strategy"),
     "base.params": ({"min_length": 25, "max_depth": 0.35, "pivot_wing": 10, "breakout_vol_ratio": 1.5}, "Tham số nhận diện nền giá", "strategy"),
     "regime.equity": ({"UPTREND": 80, "PRESSURE": 60, "CORRECTION": 40, "DOWNTREND": 20}, "Tỷ trọng cổ phiếu tối đa theo trạng thái thị trường (%)", "scoring"),
     "risk.defaults": ({"max_risk_per_trade_pct": 1.5, "stop_loss_pct": 8.0, "max_position_pct": 20.0, "max_sector_pct": 40.0, "max_correlated_group_pct": 40.0,
-                       "weekly_loss_limit_pct": 3.0, "monthly_loss_limit_pct": 6.0, "cooldown_sessions": 5, "min_risk_reward": 2.0, "max_open_risk_pct": 6.0},
+                       "weekly_loss_limit_pct": 3.0, "monthly_loss_limit_pct": 6.0, "cooldown_sessions": 5, "min_risk_reward": 1.5, "max_open_risk_pct": 6.0},
                       "Giới hạn rủi ro mặc định cho người dùng mới", "risk"),
     "risk.company_thresholds": ({"downgrade": 60, "no_buy": 80}, "Điểm rủi ro doanh nghiệp: hạ một bậc / không phát tín hiệu mua", "risk"),
     "risk.drawdown_steps": ({"dd1": 5.0, "cap1": 50.0, "dd2": 10.0, "cap2": 25.0}, "Giảm tỷ trọng theo sụt giảm từ đỉnh: giảm ≥ dd1% → tối đa cap1% cổ phiếu; ≥ dd2% → cap2%", "risk"),
@@ -55,6 +56,9 @@ CONFIG_META: dict[str, dict] = {
         _f("pullback_rsi_max", "RSI tối đa khi hồi về MA50", ""), _f("pullback_dist_ma50", "Khoảng cách tới MA50 (hồi về)", "%", type_="range"),
         _f("tight_base_tightness", "Biên độ nền chặt tối đa", "%", step=0.1), _f("tight_base_vol", "KL so với TB20 (nền chặt)", "lần", step=0.1),
         _f("chase_short", "Mua đuổi khung ngắn", "%"), _f("chase_mid", "Mua đuổi khung trung", "%")]},
+    "plan.params": {"label": "Cắt lỗ / chốt lời của kế hoạch giao dịch", "kind": "form", "fields": [
+        _f("atr_mult", "Khoảng cách cắt lỗ theo ATR", "× ATR14", step=0.25), _f("stop_floor_pct", "Cắt lỗ tối thiểu", "% giá", step=0.5), _f("stop_cap_pct", "Cắt lỗ tối đa", "% giá", step=0.5),
+        _f("use_support", "Nới xuống dưới hỗ trợ gần nhất (1 = có, 0 = không)", "", type_="int", min=0, max=1), _f("tp_rr", "Chốt lời 1 = bội số rủi ro", "× rủi ro", step=0.25, help="Mặc định theo nghiên cứu: cắt lỗ ~5%, chốt lời 1,5R")]},
     "base.params": {"label": "Nhận diện nền giá", "kind": "form", "fields": [
         _f("min_length", "Độ dài nền tối thiểu", "phiên", type_="int"), _f("max_depth", "Độ sâu nền tối đa", "tỷ lệ", step=0.01),
         _f("pivot_wing", "Số phiên hai bên đỉnh/đáy", "phiên", type_="int"), _f("breakout_vol_ratio", "KL phá nền so với TB20", "lần", step=0.1)]},

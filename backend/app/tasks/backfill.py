@@ -43,6 +43,10 @@ def regime_series(idx: pd.DataFrame) -> pd.Series:
     return out
 
 
+def _sim_kwargs(sim: dict | None) -> dict:
+    return {k: v for k, v in (sim or {}).items() if k in ("fee_pct", "tax_pct", "settlement_sessions", "slippage_pct")}
+
+
 def outcomes_for(df: pd.DataFrame, t: int, price: float, stop: float | None, tp1: float | None, signal_type: str, sim: dict | None = None) -> list[dict]:
     """Realistic outcomes (engines.simulate): next-open entry, T+2, gap-aware stop/TP, fees + slippage. `sim` carries
     fee_pct / tax_pct / settlement_sessions / slippage_pct for this symbol."""
@@ -50,7 +54,7 @@ def outcomes_for(df: pd.DataFrame, t: int, price: float, stop: float | None, tp1
 
 
 def _signals_for_frames(frames: dict, stocks_by_sym: dict, params: dict, base_params: dict, enabled: dict, regimes: pd.Series, start_date: date,
-                        min_liq: float, existing: set, sim: dict | None = None) -> list[dict]:
+                        min_liq: float, existing: set, sim: dict | None = None, plan_params: dict | None = None) -> list[dict]:
     """Pure replay of the live strategies over the price history of one batch of symbols (no DB). Each row carries
     `_outs`: outcomes after 5/10/20/60 sessions. Shared by the persisted backfill and the draft backtest (A03)."""
     sig_rows: list[dict] = []
@@ -89,7 +93,7 @@ def _signals_for_frames(frames: dict, stocks_by_sym: dict, params: dict, base_pa
             if not cands:
                 continue
             regime = regimes.get(dt, "UPTREND")
-            plan = trade_plan(row.close, row.atr14, row.support_1, row.resistance_1, st.exchange, 7.0, b_high if b_status == "BROKEN_OUT" else None)
+            plan = trade_plan(row.close, row.atr14, row.support_1, row.resistance_1, st.exchange, base_high=b_high if b_status == "BROKEN_OUT" else None, params=plan_params)
             for c in cands:
                 code = c["strategy_code"]
                 s = enabled.get(code)
@@ -105,7 +109,7 @@ def _signals_for_frames(frames: dict, stocks_by_sym: dict, params: dict, base_pa
                                  "take_profit_2": plan.get("take_profit_2"), "risk_reward": plan.get("risk_reward"), "priority": "INFO", "regime_at_signal": regime, "stand_aside": False,
                                  "is_chase": is_chase, "title": strat.signal_title(code, sym, snap, c["facts"], s.horizon, None), "facts": c["facts"], "dedupe_key": key,
                                  "_outs": outcomes_for(df, t, float(row.close), plan.get("stop_loss"), plan.get("take_profit_1"), s.signal_type,
-                                                       {**(sim or {}), "slippage_pct": slippage_for((sim or {}).get("order_value_vnd", 1e8), row.value_ma20)})})
+                                                       {**_sim_kwargs(sim), "slippage_pct": slippage_for((sim or {}).get("order_value_vnd", 1e8), row.value_ma20)})})
     return sig_rows
 
 
@@ -114,7 +118,7 @@ async def sim_params(db: AsyncSession) -> dict:
     fees = await get_config(db, "market.fees") or {}
     rp = await get_config(db, "risk.score_params") or {}
     return {"fee_pct": float(fees.get("fee_pct", 0.15)), "tax_pct": float(fees.get("tax_pct", 0.1)), "settlement_sessions": int(fees.get("settlement_days", 2)),
-            "order_value_vnd": float(rp.get("order_value_vnd", 1e8))}
+            "order_value_vnd": float(rp.get("order_value_vnd", 1e8)), "plan": await get_config(db, "plan.params")}
 
 
 async def _regimes(db: AsyncSession) -> pd.Series:
@@ -142,7 +146,7 @@ async def backfill(db: AsyncSession, years: int = 4, symbols: list[str] | None =
     for bi in range(0, len(syms), 60):
         batch = syms[bi : bi + 60]
         frames = await _load_prices(db, batch)
-        sig_rows = _signals_for_frames(frames, by_sym, params, base_params, enabled, regimes, start_date, min_liq, existing, sim)
+        sig_rows = _signals_for_frames(frames, by_sym, params, base_params, enabled, regimes, start_date, min_liq, existing, sim, sim["plan"])
         out_rows = []
         # bulk insert signals then outcomes
         for i in range(0, len(sig_rows), 500):
@@ -212,8 +216,8 @@ async def backtest_draft(db: AsyncSession, code: str, years: int = 3, sample: in
     rows_live, rows_draft = [], []
     for bi in range(0, len(syms), 50):
         frames = await _load_prices(db, syms[bi : bi + 50])
-        rows_live += _signals_for_frames(frames, by_sym, live, base_params, {code: st}, regimes, start_date, min_liq, set(), sim)
-        rows_draft += _signals_for_frames(frames, by_sym, draft, base_params, {code: st}, regimes, start_date, min_liq, set(), sim)
+        rows_live += _signals_for_frames(frames, by_sym, live, base_params, {code: st}, regimes, start_date, min_liq, set(), sim, sim["plan"])
+        rows_draft += _signals_for_frames(frames, by_sym, draft, base_params, {code: st}, regimes, start_date, min_liq, set(), sim, sim["plan"])
         await asyncio.sleep(0)  # let the API breathe / allow cancellation
     res = {"code": code, "years": years, "symbols": len(syms), "at": datetime.now(UTC).isoformat(), "live_version": st.version,
            "live": {k: v for k, v in _metrics(rows_live, years).items() if k != "_eq"}, "draft": {k: v for k, v in _metrics(rows_draft, years).items() if k != "_eq"}}
@@ -222,20 +226,23 @@ async def backtest_draft(db: AsyncSession, code: str, years: int = 3, sample: in
     return {"summary": f"{code}: nháp {res['draft']['win_rate']}% / hiện tại {res['live']['win_rate']}% ({res['draft']['trades']} lệnh, {len(syms)} mã)", **{k: v for k, v in res.items() if k not in ("live", "draft")}}
 
 
-async def recompute_outcomes(db: AsyncSession) -> dict:
-    """Re-evaluate every stored signal with the realistic simulation (after a model or fee change), then refresh
-    reliability tables. Runs symbol by symbol; progress is logged."""
+async def recompute_outcomes(db: AsyncSession, replan: bool = True) -> dict:
+    """Re-evaluate every stored signal with the realistic simulation (after a model, fee or plan change), then refresh
+    reliability tables. With replan, stop / take-profit of BUY signals are re-derived from plan.params where indicators
+    exist (from 6/2025). Runs symbol by symbol; progress is logged."""
     from app.engines.simulate import outcomes_for_arrays
     from app.models import IndicatorDaily
 
     sim = await sim_params(db)
     syms = [s for (s,) in (await db.execute(select(Signal.symbol).distinct())).all()]
-    n_sig = n_out = 0
+    n_sig = n_out = n_replan = 0
     t0 = time.time()
     for bi in range(0, len(syms), 40):
         batch = syms[bi : bi + 40]
         frames = await _load_prices(db, batch)
-        liq = {(sym, d): v for sym, d, v in (await db.execute(select(IndicatorDaily.symbol, IndicatorDaily.trade_date, IndicatorDaily.value_ma20).where(IndicatorDaily.symbol.in_(batch)))).all()}
+        ind = {(r.symbol, r.trade_date): r for r in (await db.execute(select(IndicatorDaily.symbol, IndicatorDaily.trade_date, IndicatorDaily.value_ma20, IndicatorDaily.atr14, IndicatorDaily.support_1, IndicatorDaily.resistance_1)
+                                                                        .where(IndicatorDaily.symbol.in_(batch)))).all()}
+        exch = dict((await db.execute(select(Stock.symbol, Stock.exchange).where(Stock.symbol.in_(batch)))).all())
         sigs = (await db.execute(select(Signal).where(Signal.symbol.in_(batch)).order_by(Signal.symbol, Signal.trade_date))).scalars().all()
         await db.execute(SignalOutcome.__table__.delete().where(SignalOutcome.signal_id.in_([s.id for s in sigs])))
         rows = []
@@ -246,8 +253,14 @@ async def recompute_outcomes(db: AsyncSession) -> dict:
             pos = df.index.searchsorted(pd.Timestamp(s.trade_date))
             if pos >= len(df) or df.index[pos].date() != s.trade_date:
                 continue
+            r = ind.get((s.symbol, s.trade_date))
+            if replan and r is not None and s.signal_type == "BUY" and s.price:
+                # re-derive stop / TP with the current plan.params (the stored levels came from the old rule)
+                pl = trade_plan(float(s.price), r.atr14, r.support_1, r.resistance_1, exch.get(s.symbol, "HOSE"), params=sim["plan"])
+                s.stop_loss, s.take_profit_1, s.take_profit_2, s.risk_reward = pl.get("stop_loss"), pl.get("take_profit_1"), pl.get("take_profit_2"), pl.get("risk_reward")
+                n_replan += 1
             outs = outcomes_for_arrays(df["open"].values, df["high"].values, df["low"].values, df["close"].values, pos, s.stop_loss, s.take_profit_1, s.signal_type,
-                                       **{**{k: v for k, v in sim.items() if k != "order_value_vnd"}, "slippage_pct": slippage_for(sim["order_value_vnd"], liq.get((s.symbol, s.trade_date)))})
+                                       **{**_sim_kwargs(sim), "slippage_pct": slippage_for(sim["order_value_vnd"], r.value_ma20 if r is not None else None)})
             rows += [{"signal_id": s.id, **o} for o in outs]
             n_sig += 1
         for i in range(0, len(rows), 1000):
@@ -257,7 +270,8 @@ async def recompute_outcomes(db: AsyncSession) -> dict:
         log.warning("recompute %d/%d symbols, signals=%d outcomes=%d, %.0fs", min(bi + 40, len(syms)), len(syms), n_sig, n_out, time.time() - t0)
     rel = await refresh_reliability(db)
     await db.commit()
-    return {"signals": n_sig, "outcomes": n_out, "reliability_rows": rel, "seconds": int(time.time() - t0), "summary": f"{n_sig} tín hiệu, {n_out} kết quả, {int(time.time() - t0)} giây"}
+    return {"signals": n_sig, "outcomes": n_out, "replanned": n_replan, "reliability_rows": rel, "seconds": int(time.time() - t0),
+            "summary": f"{n_sig} tín hiệu, {n_out} kết quả, đặt lại cắt lỗ {n_replan}, {int(time.time() - t0)} giây"}
 
 
 async def _main():

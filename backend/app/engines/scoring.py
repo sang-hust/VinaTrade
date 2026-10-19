@@ -168,20 +168,37 @@ def composite(tech: float, fund: float, sector: float, pattern: float, weights: 
     return out
 
 
+# Stop / take-profit placement (4b study). The old rule took the TIGHTEST of (2×ATR, 7%, just under support) → 54% of
+# buys were stopped out. Now: ATR-based distance clamped to [floor, cap] % of price, optionally widened to just under a
+# nearby support; TP1 at tp_rr × risk (or the resistance if higher). Admin-editable via system_config "plan.params".
+# 4b study (2.032 tín hiệu mua 6/2025–10/2026, mô phỏng sát thực tế): stop ≈ 5% (ATR nếu lớn hơn, tối đa 8%), TP1 = 1.5 × risk
+# gave the best expectancy and smallest tail loss; wider stops lost more per stop than they saved in whipsaws.
+DEFAULT_PLAN_PARAMS = {"atr_mult": 1.0, "stop_floor_pct": 5.0, "stop_cap_pct": 8.0, "use_support": 0, "tp_rr": 1.5}  # use_support: 0/1 (admin form)
+
+
+def plan_levels(close: float, atr14: float | None, support: float | None, resistance: float | None, params: dict | None = None) -> dict:
+    p = {**DEFAULT_PLAN_PARAMS, **(params or {})}
+    atr_v = atr14 if atr14 and not math.isnan(atr14) else close * 0.025
+    dist = float(p["atr_mult"]) * atr_v
+    dist = min(max(dist, close * float(p["stop_floor_pct"]) / 100), close * float(p["stop_cap_pct"]) / 100)
+    stop = close - dist
+    if p.get("use_support") and support and not math.isnan(support) and support < close:
+        s_stop = support * 0.99
+        if s_stop < stop and (close - s_stop) <= close * float(p["stop_cap_pct"]) / 100:
+            stop = s_stop  # widen to sit under the support, never beyond the cap
+    risk = close - stop
+    tp1 = max(resistance if resistance and not math.isnan(resistance) and resistance > close * 1.03 else 0, close + float(p["tp_rr"]) * risk)
+    tp2 = max(close + (float(p["tp_rr"]) + 1.5) * risk, tp1 * 1.08)
+    return {"stop": stop, "tp1": tp1, "tp2": tp2, "risk": risk}
+
+
 def trade_plan(close: float, atr14: float | None, support: float | None, resistance: float | None,
-               exchange: str, stop_pct: float = 7.0, base_high: float | None = None) -> dict:
-    """Entry zone / stop loss / take profit per spec 4.6e, rounded to tick."""
+               exchange: str, stop_pct: float = 7.0, base_high: float | None = None, params: dict | None = None) -> dict:
+    """Entry zone / stop loss / take profit per spec 4.6e (levels from plan_levels), rounded to tick."""
     if not close or close <= 0:
         return {}
-    atr_v = atr14 if atr14 and not math.isnan(atr14) else close * 0.025
-    candidates = [close - 2.0 * atr_v, close * (1 - stop_pct / 100)]
-    if support and not math.isnan(support) and support < close:
-        candidates.append(support * 0.99)
-    stop = max(candidates)
-    stop = min(stop, close * 0.97)  # never tighter than 3%
-    risk = close - stop
-    tp1 = max(resistance if resistance and not math.isnan(resistance) and resistance > close * 1.03 else 0, close + 2.0 * risk)
-    tp2 = max(close + 3.5 * risk, tp1 * 1.08)
+    lv = plan_levels(close, atr14, support, resistance, {**(params or {}), **({"stop_floor_pct": stop_pct} if params is None and stop_pct != 7.0 else {})})
+    stop, tp1, tp2, risk = lv["stop"], lv["tp1"], lv["tp2"], lv["risk"]
     if base_high and base_high < close <= base_high * 1.05:
         entry_low, entry_high = base_high * 0.99, base_high * 1.03
     else:

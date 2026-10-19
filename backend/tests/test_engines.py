@@ -87,10 +87,18 @@ def test_scoring_and_plan():
     comp = composite(tc["tech"], 60, 55, 70, {"SHORT": {"tech": 55, "fund": 10, "sector": 10, "pattern": 25}, "MID": {"tech": 35, "fund": 30, "sector": 15, "pattern": 20}, "LONG": {"tech": 15, "fund": 55, "sector": 20, "pattern": 10}}, "UPTREND")
     assert rating_for(comp["MID"]) in ("STRONG_BUY", "BUY", "HOLD")
     assert rating_for(82) == "STRONG_BUY" and rating_for(64.9) == "HOLD" and rating_for(10) == "SELL"
-    plan = trade_plan(100000, 2500, 96000, 115000, "HOSE", 7.0, base_high=99000)
+    plan = trade_plan(100000, 2500, 96000, 115000, "HOSE", base_high=99000)
     assert plan["stop_loss"] < plan["entry_low"] < plan["entry_high"]
     assert plan["take_profit_1"] > 100000 and plan["take_profit_2"] > plan["take_profit_1"]
-    assert plan["risk_reward"] >= 2
+    assert plan["risk_reward"] >= 1.5
+    # 4b rule: stop = max(1×ATR, 5%) capped at 8%; TP1 = 1.5 × risk; support only widens when asked
+    from app.engines.scoring import plan_levels
+
+    lv = plan_levels(100000, 2500, 96000, None)
+    assert lv["stop"] == 95000 and lv["tp1"] == 107500
+    assert plan_levels(100000, 12000, None, None)["stop"] == 92000  # capped at 8%
+    assert plan_levels(100000, 2500, 90000, None, {"use_support": True})["stop"] == 95000  # support below the cap is ignored
+    assert plan_levels(100000, 2500, 93000, None, {"use_support": True})["stop"] == 93000 * 0.99
 
 
 def test_pretrade_levels():

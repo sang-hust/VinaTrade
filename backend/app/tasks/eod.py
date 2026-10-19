@@ -405,6 +405,7 @@ async def step_scores(db: AsyncSession) -> dict:
     weights = await get_config(db, "scoring.weights")
     risk_th = await get_config(db, "risk.company_thresholds")
     chase = await get_config(db, "risk.chase")
+    plan_params = await get_config(db, "plan.params")
     risk_rows = {r.symbol: r for r in (await db.execute(select(CompanyRiskScore).where(CompanyRiskScore.symbol.in_(symbols)))).scalars()}
     # fundamental percentiles within industry
     fdf = pd.DataFrame([{"symbol": s, "industry": by_sym[s].industry_code or "NA", **{c: getattr(r, c) for c in FUND_PCT_COLS}} for s, r in ratios.items()]).set_index("symbol") if ratios else pd.DataFrame()
@@ -437,7 +438,7 @@ async def step_scores(db: AsyncSession) -> dict:
             ratings = {hz: downgrade(v) for hz, v in ratings.items()}
         limit = chase.get("SHORT", 15) if False else chase.get("MID", 20)
         is_chase = strat.is_chase(gain_from_base, i.ceiling_streak, "MID", {"chase_short": chase.get("SHORT", 15), "chase_mid": limit})
-        plan = trade_plan(i.close, i.atr14, i.support_1, i.resistance_1, s.exchange, stop_pct=7.0, base_high=b.base_high if b and b.status == "BROKEN_OUT" else None)
+        plan = trade_plan(i.close, i.atr14, i.support_1, i.resistance_1, s.exchange, base_high=b.base_high if b and b.status == "BROKEN_OUT" else None, params=plan_params)
         trend3 = _trend3(i)
         reasons, drawbacks = _reasons(i, r, b, rl, gain_from_base, risk, sector_score, s)
         vals = dict(**tc, **fc, sector=round(sector_score, 1), pattern_ai=round(pa, 1), score_short=comp["SHORT"], score_mid=comp["MID"], score_long=comp["LONG"],
@@ -858,7 +859,7 @@ def simulate_one(o, h, lo, c, s: Signal, days: int, sim: dict, value_ma20: float
     from app.engines.simulate import outcomes_for_arrays, slippage_for
 
     outs = outcomes_for_arrays(o, h, lo, c, 0, s.stop_loss, s.take_profit_1, s.signal_type, fee_pct=sim["fee_pct"], tax_pct=sim["tax_pct"], settlement_sessions=sim["settlement_sessions"],
-                               slippage_pct=slippage_for(sim["order_value_vnd"], value_ma20))
+                               slippage_pct=slippage_for(sim["order_value_vnd"], value_ma20))  # plan levels are the signal's own
     return next((x for x in outs if x["days"] == days), None)
 
 
