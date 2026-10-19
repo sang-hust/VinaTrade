@@ -71,6 +71,8 @@ FIELDS: dict[str, dict] = {
     "in_vn30": {"type": "bool", "vi": "Thuộc VN30", "group": "cls"},
     # rủi ro
     "risk_score": {"type": "num", "vi": "Điểm rủi ro DN", "group": "risk"},
+    "risk_total": {"type": "num", "vi": "Điểm rủi ro tổng hợp", "group": "risk"},
+    "risk_total_level": {"type": "enum", "vi": "Mức rủi ro tổng hợp", "group": "risk", "values": ["LOW", "MEDIUM", "HIGH"]},
     "beta_60": {"type": "num", "vi": "Beta 60 phiên", "group": "risk"},
     "earnings_in_days": {"type": "num", "vi": "Số ngày tới sự kiện quyền (GDKHQ/ĐHCĐ)", "group": "risk"},
     "insider_net_90d": {"type": "num", "vi": "Nội bộ mua/bán ròng 90 ngày (đồng)", "group": "risk"},

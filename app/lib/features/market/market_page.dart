@@ -94,7 +94,11 @@ class _Headline extends ConsumerWidget {
           if (d['max_equity_pct'] != null) _chip(context, 'Tỷ trọng cổ phiếu tối đa', '${d['max_equity_pct']}%', c.regimeColor(regime)),
           if (br['liquidity_ratio'] != null) _chip(context, 'Thanh khoản', '${Fmt.num_(asNum(br['liquidity_ratio']), decimals: 2)}× TB20', c.text),
           if (br['distribution_days'] != null) _chip(context, 'Phiên phân phối', '${br['distribution_days']}/25', (asNum(br['distribution_days']) ?? 0) >= 5 ? c.downText : c.text),
+          if (br['new_highs'] != null) _chip(context, 'Đỉnh / đáy 52 tuần', '${br['new_highs']} / ${br['new_lows']} mã', (asNum(br['new_lows']) ?? 0) >= 2 * (asNum(br['new_highs']) ?? 0) && (asNum(br['new_lows']) ?? 0) >= 20 ? c.downText : c.text),
+          if (br['foreign_net_5d'] != null) _chip(context, 'Khối ngoại 5 phiên', '${Fmt.money(asNum(br['foreign_net_5d']))}${(asNum(br['foreign_sell_streak']) ?? 0) >= 3 ? ' · bán ròng ${br['foreign_sell_streak']} phiên' : ''}', (asNum(br['foreign_net_5d']) ?? 0) < 0 ? c.downText : c.upText),
         ]),
+        if ((br['pressure_reasons'] as List? ?? []).isNotEmpty)
+          Padding(padding: const EdgeInsets.only(top: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(Icons.warning_amber_rounded, size: 16, color: c.ref), const SizedBox(width: 6), Expanded(child: Text('Dấu hiệu sớm: ${(br['pressure_reasons'] as List).join('; ')}.', style: TextStyle(color: c.ref, fontSize: 12.5)))])),
         if (context.isPhone) ...[
           const SizedBox(height: 12),
           Wrap(spacing: 14, runSpacing: 6, children: [

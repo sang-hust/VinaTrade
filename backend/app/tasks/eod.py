@@ -288,8 +288,20 @@ async def _breadth(db: AsyncSession, d: date) -> dict:
         FROM indicators_daily i JOIN stocks s ON s.symbol=i.symbol
         WHERE i.trade_date=:d AND s.is_active AND i.value_ma20 >= 1e9"""), {"d": d})).one()
     n = row.n or 1
+    hl = (await db.execute(text("""
+        SELECT sum(case when i.close >= i.high_52w * 0.995 then 1 else 0 end) nh, sum(case when i.close <= i.low_52w * 1.005 then 1 else 0 end) nl
+        FROM indicators_daily i JOIN stocks s ON s.symbol=i.symbol WHERE i.trade_date=:d AND s.is_active AND i.value_ma20 >= 1e9 AND i.high_52w IS NOT NULL"""), {"d": d})).one()
+    flows = (await db.execute(text("""SELECT trade_date, sum(foreign_net_val) FROM investor_flows WHERE trade_date <= :d GROUP BY 1 ORDER BY 1 DESC LIMIT 15"""), {"d": d})).all()
+    net5 = float(sum(v or 0 for _, v in flows[:5])) if flows else None
+    streak = 0
+    for _, v in flows:
+        if v is not None and v < 0:
+            streak += 1
+        else:
+            break
     return {"pct_above_ma50": round((row.above50 or 0) / n * 100, 1), "pct_above_ma200": round((row.above200 or 0) / n * 100, 1),
-            "advances": int(row.adv or 0), "declines": int(row.dec or 0), "unchanged": int(n - (row.adv or 0) - (row.dec or 0))}
+            "advances": int(row.adv or 0), "declines": int(row.dec or 0), "unchanged": int(n - (row.adv or 0) - (row.dec or 0)),
+            "new_highs": int(hl.nh or 0), "new_lows": int(hl.nl or 0), "foreign_net_5d": net5, "foreign_sell_streak": streak if flows else None}
 
 
 async def step_regime(db: AsyncSession) -> dict:
@@ -299,11 +311,12 @@ async def step_regime(db: AsyncSession) -> dict:
     df = pd.DataFrame([{"trade_date": r.trade_date, "close": r.close, "volume": r.volume or 0, "value": r.value} for r in reversed(rows)]).set_index("trade_date")
     d = rows[0].trade_date
     br = await _breadth(db, (await db.execute(select(func.max(IndicatorDaily.trade_date)))).scalar() or d)
-    facts = classify_regime(df, br)
+    facts = classify_regime(df, br, await get_config(db, "regime.breadth"))
     equity = await get_config(db, "regime.equity")
     facts["max_equity_pct"] = int(equity.get(facts["regime"], facts["max_equity_pct"]))
     draft = facts["headline_rule"].replace(f"{facts['max_equity_pct']}%", f"{facts['max_equity_pct']}%")
-    headline = await ai.rewrite_headline(draft, {k: facts[k] for k in ("vnindex", "vnindex_change_pct", "pct_above_ma50", "dist_days", "max_equity_pct", "regime_vi")})
+    headline = await ai.rewrite_headline(draft, {k: facts[k] for k in ("vnindex", "vnindex_change_pct", "pct_above_ma50", "dist_days", "max_equity_pct", "regime_vi", "pressure_reasons")})
+    headline = (headline or draft)[:300]
     reg = await db.get(MarketRegime, d)
     if reg is None:
         reg = MarketRegime(trade_date=d)
@@ -312,6 +325,7 @@ async def step_regime(db: AsyncSession) -> dict:
     reg.vnindex, reg.vnindex_change_pct = facts["vnindex"], facts["vnindex_change_pct"]
     reg.pct_above_ma50, reg.pct_above_ma200 = br["pct_above_ma50"], br["pct_above_ma200"]
     reg.advances, reg.declines, reg.distribution_days, reg.liquidity_ratio = br["advances"], br["declines"], facts["dist_days"], facts["liquidity_ratio"]
+    reg.new_highs, reg.new_lows, reg.foreign_net_5d, reg.foreign_sell_streak = br.get("new_highs"), br.get("new_lows"), br.get("foreign_net_5d"), br.get("foreign_sell_streak")
     reg.headline, reg.note, reg.facts = headline, draft, facts
     # breadth onto index_daily
     idx = await db.get(IndexDaily, ("VNINDEX", d))
@@ -555,7 +569,8 @@ async def step_risk_total(db: AsyncSession) -> dict:
         sc.score_adj_short, sc.score_adj_mid, sc.score_adj_long = risk_adjusted(sc.score_short, res["score"]), risk_adjusted(sc.score_mid, res["score"]), risk_adjusted(sc.score_long, res["score"])
         cache = _SCORE_CACHE.get(s.symbol)
         if cache is not None:
-            cache.update(rating_short=sc.rating_short, rating_mid=sc.rating_mid, rating_long=sc.rating_long, risk_total=res["score"], risk_total_level=res["level"])
+            cache.update(rating_short=sc.rating_short, rating_mid=sc.rating_mid, rating_long=sc.rating_long, risk_total=res["score"], risk_total_level=res["level"],
+                         manipulation=next((c["score"] for c in res["components"] if c["key"] == "manipulation"), None))
         counts[res["level"]] += 1
         n += 1
     await db.flush()
@@ -652,6 +667,8 @@ async def step_signals(db: AsyncSession) -> dict:
     d = (await db.execute(select(func.max(IndicatorDaily.trade_date)))).scalar()
     params = await get_config(db, "strategy.params")
     risk_th = await get_config(db, "risk.company_thresholds")
+    manip_block = float((await get_config(db, "risk.manipulation") or {}).get("block", 60))
+    n_blocked = 0
     min_liq = float(await get_config(db, "market.min_liquidity") or 0)
     regime_row = (await db.execute(select(MarketRegime).order_by(desc(MarketRegime.trade_date)).limit(1))).scalar_one_or_none()
     regime = regime_row.regime if regime_row else "UPTREND"
@@ -697,6 +714,9 @@ async def step_signals(db: AsyncSession) -> dict:
                     continue
                 if st.signal_type == "BUY" and risk_score >= risk_th.get("no_buy", 80):
                     continue
+                if st.signal_type == "BUY" and (sc.get("manipulation") or 0) >= manip_block:
+                    n_blocked += 1
+                    continue
                 if st.signal_type == "BUY" and regime == "DOWNTREND" and st.horizon == "SHORT":
                     continue
                 hz = st.horizon
@@ -720,7 +740,7 @@ async def step_signals(db: AsyncSession) -> dict:
                 db.add(sig)
                 n_new += 1
         await db.flush()
-    return {"signals": n_new, "date": d.isoformat()}
+    return {"signals": n_new, "blocked_manipulation": n_blocked, "date": d.isoformat()}
 
 
 async def step_snapshot(db: AsyncSession) -> dict:

@@ -298,3 +298,19 @@ async def test_heat_limit_and_guard_fields(client, token):
         pytest.skip("no snapshot data")
     codes = [i["code"] for i in r.json()["items"]]
     assert "HEAT" in codes and "LIQUIDITY" in codes
+
+
+async def test_breadth_fields_and_manipulation_check(client, token):
+    r = await client.get("/api/v1/market/overview", headers=_h(token))
+    assert r.status_code == 200
+    br = r.json().get("breadth")
+    if br:
+        assert {"new_highs", "new_lows", "foreign_net_5d", "foreign_sell_streak", "pressure_reasons"} <= set(br)
+    r = await client.post("/api/v1/pretrade-check", headers=_h(token), json={"symbol": "FPT", "quantity": 100, "save": False})
+    if r.status_code == 404:
+        pytest.skip("no snapshot data")
+    assert "MANIPULATION" in [i["code"] for i in r.json()["items"]]
+    r = await client.get("/api/v1/admin/config", headers=_h(token))
+    assert {"regime.breadth", "risk.manipulation"} <= {c["key"] for c in r.json()}
+    r = await client.post("/api/v1/screener/run", headers=_h(token), json={"preset_code": "HIGH_RISK", "limit": 5})
+    assert r.status_code == 200 and all((i.get("risk_total") or 0) >= 50 or (i.get("risk_score") or 0) >= 60 for i in r.json()["items"])

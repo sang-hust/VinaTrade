@@ -84,6 +84,8 @@ async def pretrade(body: PretradeIn, user: CurrentUser, db: DB):
     reg = (await db.execute(select(MarketRegime).order_by(desc(MarketRegime.trade_date)).limit(1))).scalar_one_or_none()
     regime = reg.regime if reg else "UPTREND"
     chase = await get_config(db, "risk.chase")
+    manip_cfg = await get_config(db, "risk.manipulation") or {}
+    manip = next((c for c in (sn.risk_components or []) if c.get("key") == "manipulation"), None)
     # equity cap: regime cap (regime.equity) ∧ drawdown cap (risk guard), real portfolios only
     cap, cap_reason = None, None
     if pf is not None and not pf.is_paper:
@@ -112,6 +114,7 @@ async def pretrade(body: PretradeIn, user: CurrentUser, db: DB):
         reliability_pct=rel.win_rate if rel else None, reliability_samples=rel.samples if rel else None, chase_limits=(int(chase.get("SHORT", 15)), int(chase.get("MID", 20))),
         market_price=float(sn.price), cash=float(view["cash"]) if view else None, uses_margin=bool(pf.uses_margin) if pf else False,
         open_risk_vnd=float(view["open_risk"]) if view else 0.0, market_value=float(view["market_value"]) if view else 0.0, equity_cap_pct=cap, equity_cap_reason=cap_reason,
+        manipulation_score=manip["score"] if manip else None, manipulation_note=manip.get("note") if manip else None, manipulation_limits=(float(manip_cfg.get("warn", 30)), float(manip_cfg.get("block", 60))),
     ))
     check_id = None
     if body.save:

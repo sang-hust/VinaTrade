@@ -99,6 +99,7 @@ CHECK_VI = {
     "CASH": "Tiền mặt cho lệnh",
     "HEAT": "Nhiệt danh mục sau lệnh",
     "EXPOSURE": "Tỷ trọng cổ phiếu sau lệnh",
+    "MANIPULATION": "Dấu hiệu thao túng",
 }
 
 
@@ -131,6 +132,9 @@ class PretradeInput:
     market_value: float = 0.0  # current stock exposure (for the equity cap)
     equity_cap_pct: float | None = None  # min(regime cap, drawdown cap); None = no cap
     equity_cap_reason: str | None = None
+    manipulation_score: float | None = None  # total-risk component 4 (0–100)
+    manipulation_note: str | None = None
+    manipulation_limits: tuple[float, float] = (30.0, 60.0)  # (warn, block)
 
 
 def pretrade_check(i: PretradeInput) -> dict:
@@ -169,6 +173,11 @@ def pretrade_check(i: PretradeInput) -> dict:
     heat_cap = float(i.limits.get("max_open_risk_pct", 6.0))
     item("HEAT", heat_pct <= heat_cap + 1e-9, f"{heat_pct:.1f}% tài sản", f"≤ {heat_cap:.0f}%", red_if_fail=True,
          note=f"Tổng lỗ nếu mọi mã (kể cả lệnh này) cùng chạm cắt lỗ: {(i.open_risk_vnd + max_loss):,.0f} đ".replace(",", "."))
+    if i.manipulation_score is not None:
+        warn, block = i.manipulation_limits
+        ms = float(i.manipulation_score)
+        item("MANIPULATION", ms < warn, f"{ms:.0f}/100", f"< {warn:.0f}", red_if_fail=ms >= block,
+             note=i.manipulation_note if ms >= warn else None)
     if i.equity_cap_pct is not None:
         exp_pct = (i.market_value + order_value) / equity * 100
         item("EXPOSURE", exp_pct <= i.equity_cap_pct + 1e-9, f"{exp_pct:.0f}% tài sản", f"≤ {i.equity_cap_pct:.0f}%", red_if_fail=True, note=i.equity_cap_reason)

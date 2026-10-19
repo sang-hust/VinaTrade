@@ -269,3 +269,31 @@ def test_realistic_simulation_entry_t2_gap_fees():
     assert rs["result"] == "WIN"
     # window shorter than days → nothing
     assert outcomes_for_arrays(o, h, lo, c, 0, 92, 120, "BUY", slippage_pct=0.0)[-1]["days"] == 10
+
+
+def test_regime_breadth_and_foreign_downgrade():
+    import numpy as np
+    import pandas as pd
+
+    from app.engines.regime import classify_regime
+
+    idx = pd.DataFrame({"close": np.linspace(1000, 1300, 260), "volume": np.full(260, 1e8), "value": np.full(260, 1e13)}, index=pd.bdate_range("2025-01-01", periods=260))
+    base = {"pct_above_ma50": 65, "advances": 300, "declines": 150}
+    assert classify_regime(idx, base)["regime"] == "UPTREND"
+    r = classify_regime(idx, {**base, "new_highs": 8, "new_lows": 40})
+    assert r["regime"] == "PRESSURE" and "đáy 52 tuần" in r["headline_rule"]
+    r = classify_regime(idx, {**base, "new_highs": 30, "new_lows": 10, "foreign_net_5d": -2.5e12, "foreign_sell_streak": 6})
+    assert r["regime"] == "PRESSURE" and "khối ngoại bán ròng 6 phiên" in r["headline_rule"]
+    assert classify_regime(idx, {**base, "foreign_net_5d": -2.5e12, "foreign_sell_streak": 6}, {"foreign_sell_days": 8})["regime"] == "UPTREND"
+
+
+def test_pretrade_manipulation_item():
+    from app.engines.risk import PretradeInput, pretrade_check
+
+    base = dict(symbol="XYZ", quantity=100, price=20000, stop_loss=19000, take_profit=23000, horizon="MID", equity=100e6, position_value=0, sector_value=0, regime="UPTREND",
+                guard_mode="NORMAL", status_flags=[], value_ma20=3e9, gain_from_base_pct=2, ceiling_streak=0, earnings_in_days=None, limits={})
+    levels = {it["code"]: it for it in pretrade_check(PretradeInput(**base, manipulation_score=75, manipulation_note="tăng 62% trong 20 phiên, 5 phiên trần"))["items"]}
+    assert levels["MANIPULATION"]["level"] == "RED" and "5 phiên trần" in levels["MANIPULATION"]["note"]
+    assert {it["code"]: it["level"] for it in pretrade_check(PretradeInput(**base, manipulation_score=40))["items"]}["MANIPULATION"] == "YELLOW"
+    assert {it["code"]: it["level"] for it in pretrade_check(PretradeInput(**base, manipulation_score=5))["items"]}["MANIPULATION"] == "GREEN"
+    assert "MANIPULATION" not in {it["code"] for it in pretrade_check(PretradeInput(**base))["items"]}

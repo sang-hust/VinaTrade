@@ -63,7 +63,7 @@ def build_dsl(core: list[dict], form: dict | None, horizon: str) -> dict:
     """Core preset rules AND form rules; a form rule on the same field overrides the core rule."""
     form_rules = form_to_rules(form, horizon) if form is not None else []
     form_fields = {r["field"] for r in form_rules}
-    merged = [r for r in core if r["field"] not in form_fields] + form_rules
+    merged = [r for r in core if r.get("field") is None or r["field"] not in form_fields] + form_rules  # nested any/all rules pass through
     return {"all": merged}
 
 
@@ -110,8 +110,8 @@ PRESETS = [
      "description": "MA50 cắt xuống MA200 trong 10 phiên gần nhất",
      "core": [{"field": "ma50", "op": "cross_below", "value": {"field": "ma200"}, "lookback": 10}],
      "form": {"value_ma20": 5e9, "no_chase": False}},
-    {"code": "HIGH_RISK", "name": "Rủi ro doanh nghiệp cao", "group": "AVOID", "horizon": "LONG",
-     "description": "Điểm rủi ro doanh nghiệp ≥ 60",
-     "core": [{"field": "risk_score", "op": ">=", "value": 60}],
+    {"code": "HIGH_RISK", "name": "Rủi ro cao, nên tránh", "group": "AVOID", "horizon": "LONG",
+     "description": "Điểm rủi ro tổng hợp ≥ 50 hoặc rủi ro doanh nghiệp ≥ 60 (biến động, thanh khoản, thao túng, sự kiện)",
+     "core": [{"any": [{"field": "risk_total", "op": ">=", "value": 50}, {"field": "risk_score", "op": ">=", "value": 60}]}],
      "form": {"value_ma20": 5e9, "no_chase": False}},
 ]

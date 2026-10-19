@@ -3,6 +3,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engines.regime import DEFAULT_BREADTH_PARAMS
 from app.engines.risk import DEFAULT_RISK_PARAMS, DEFAULT_RISK_WEIGHTS
 from app.engines.scoring import DEFAULT_PLAN_PARAMS, DEFAULT_WEIGHTS
 from app.engines.strategies import DEFAULT_PARAMS
@@ -16,6 +17,8 @@ DEFAULTS: dict[str, tuple[object, str, str]] = {
     "plan.params": (DEFAULT_PLAN_PARAMS, "Đặt cắt lỗ / chốt lời cho kế hoạch giao dịch (nghiên cứu 4b)", "strategy"),
     "base.params": ({"min_length": 25, "max_depth": 0.35, "pivot_wing": 10, "breakout_vol_ratio": 1.5}, "Tham số nhận diện nền giá", "strategy"),
     "regime.equity": ({"UPTREND": 80, "PRESSURE": 60, "CORRECTION": 40, "DOWNTREND": 20}, "Tỷ trọng cổ phiếu tối đa theo trạng thái thị trường (%)", "scoring"),
+    "regime.breadth": (DEFAULT_BREADTH_PARAMS, "Độ rộng thị trường và khối ngoại hạ trạng thái Tăng → Chịu áp lực", "scoring"),
+    "risk.manipulation": ({"warn": 30, "block": 60}, "Điểm dấu hiệu thao túng: cảnh báo Vàng / chặn mua (Đỏ, không phát tín hiệu mua)", "risk"),
     "risk.defaults": ({"max_risk_per_trade_pct": 1.5, "stop_loss_pct": 8.0, "max_position_pct": 20.0, "max_sector_pct": 40.0, "max_correlated_group_pct": 40.0,
                        "weekly_loss_limit_pct": 3.0, "monthly_loss_limit_pct": 6.0, "cooldown_sessions": 5, "min_risk_reward": 1.5, "max_open_risk_pct": 6.0},
                       "Giới hạn rủi ro mặc định cho người dùng mới", "risk"),
@@ -62,6 +65,10 @@ CONFIG_META: dict[str, dict] = {
     "base.params": {"label": "Nhận diện nền giá", "kind": "form", "fields": [
         _f("min_length", "Độ dài nền tối thiểu", "phiên", type_="int"), _f("max_depth", "Độ sâu nền tối đa", "tỷ lệ", step=0.01),
         _f("pivot_wing", "Số phiên hai bên đỉnh/đáy", "phiên", type_="int"), _f("breakout_vol_ratio", "KL phá nền so với TB20", "lần", step=0.1)]},
+    "regime.breadth": {"label": "Độ rộng thị trường & khối ngoại", "kind": "form", "fields": [
+        _f("narrow_ma50_pct", "Độ rộng hẹp: dưới % mã trên MA50", "%"), _f("new_lows_ratio", "Đáy 52 tuần gấp mấy lần đỉnh", "lần", step=0.5), _f("new_lows_min", "Số mã lập đáy tối thiểu", "mã", type_="int"),
+        _f("foreign_sell_days", "Khối ngoại bán ròng liên tiếp từ", "phiên", type_="int"), _f("foreign_sell_5d_vnd", "Bán ròng 5 phiên từ", "đồng", type_="int")]},
+    "risk.manipulation": {"label": "Dấu hiệu thao túng", "kind": "form", "fields": [_f("warn", "Cảnh báo Vàng từ", "điểm"), _f("block", "Chặn mua (Đỏ) từ", "điểm")]},
     "risk.defaults": {"label": "Giới hạn rủi ro mặc định cho người dùng mới", "kind": "form", "fields": [
         _f("max_risk_per_trade_pct", "Lỗ tối đa mỗi lệnh", "% tài sản", step=0.1), _f("stop_loss_pct", "Cắt lỗ mặc định", "%", step=0.5),
         _f("max_position_pct", "Tỷ trọng một mã tối đa", "%"), _f("max_sector_pct", "Tỷ trọng một ngành tối đa", "%"), _f("max_correlated_group_pct", "Nhóm tương quan tối đa", "%"),
