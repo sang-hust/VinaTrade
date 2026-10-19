@@ -97,6 +97,7 @@ async def pretrade(body: PretradeIn, user: CurrentUser, db: DB):
         gain_from_base_pct=sn.gain_from_base_pct, ceiling_streak=sn.ceiling_streak, earnings_in_days=sn.earnings_in_days,
         limits={"max_risk_per_trade_pct": float(lim.max_risk_per_trade_pct), "max_position_pct": float(lim.max_position_pct), "max_sector_pct": float(lim.max_sector_pct), "min_risk_reward": float(lim.min_risk_reward)},
         reliability_pct=rel.win_rate if rel else None, reliability_samples=rel.samples if rel else None, chase_limits=(int(chase.get("SHORT", 15)), int(chase.get("MID", 20))),
+        market_price=float(sn.price), cash=float(view["cash"]) if view else None, uses_margin=bool(pf.uses_margin) if pf else False,
     ))
     check_id = None
     if body.save:

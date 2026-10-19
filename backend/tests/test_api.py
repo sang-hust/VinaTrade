@@ -256,9 +256,30 @@ async def test_risk_numbers_and_options(client, token):
         assert "risk_numbers" in b
         if b["risk_numbers"]:
             assert "text" in b["risk_numbers"] and "max_loss" in b["risk_numbers"]
-    r = await client.post("/api/v1/pretrade-check", headers=_h(token), json={"symbol": "FPT", "quantity": 300, "price": 50000, "stop_loss": 46000, "take_profit": 60000})
+    r = await client.post("/api/v1/pretrade-check", headers=_h(token), json={"symbol": "FPT", "quantity": 300, "price": 50000, "stop_loss": 46000, "take_profit": 60000, "save": False})
     if r.status_code == 404:
         pytest.skip("no snapshot data")
     d = r.json()
     assert [o["key"] for o in d["options"]] == ["none", "third", "full"] and d["options"][2]["quantity"] == 300 and d["options"][1]["quantity"] == 100
     assert d["options"][2]["max_loss"] >= 300 * 4000 and "risk_numbers" in d
+
+
+async def test_transaction_typo_and_cash_guards(client, token):
+    r = await client.post("/api/v1/portfolios", headers=_h(token), json={"name": "Guard test", "initial_capital": 10_000_000, "uses_margin": False})
+    assert r.status_code == 200
+    pid = r.json()["id"]
+    try:
+        r = await client.get("/api/v1/stocks/VNM/analysis", headers=_h(token))
+        if r.status_code == 404:
+            pytest.skip("no snapshot data")
+        px = r.json()["price"]
+        chk = await client.post("/api/v1/pretrade-check", headers=_h(token), json={"symbol": "VNM", "portfolio_id": pid, "quantity": 100, "price": px // 10, "stop_loss": px // 11, "take_profit": px // 8})
+        assert chk.status_code == 200 and chk.json()["result"] == "RED" and any(i["code"] == "PRICE" and i["level"] == "RED" for i in chk.json()["items"])
+        r = await client.post(f"/api/v1/portfolios/{pid}/transactions", headers=_h(token), json={"side": "BUY", "symbol": "VNM", "quantity": 100, "price": px // 10, "pretrade_check_id": chk.json()["check_id"]})
+        assert r.status_code == 400 and r.json()["error"]["code"] == "PRICE_SUSPECT" and r.json()["error"]["details"]["suggested_price"] == float(px)
+        r = await client.post(f"/api/v1/portfolios/{pid}/transactions", headers=_h(token), json={"side": "BUY", "symbol": "VNM", "quantity": 100_000, "price": px, "pretrade_check_id": chk.json()["check_id"]})
+        assert r.status_code == 400 and r.json()["error"]["code"] == "CASH_INSUFFICIENT"
+        r = await client.post(f"/api/v1/portfolios/{pid}/transactions", headers=_h(token), json={"side": "SELL", "symbol": "VNM", "quantity": 100, "price": px // 10, "confirm_price": True})
+        assert r.status_code != 400 or r.json()["error"]["code"] != "PRICE_SUSPECT"  # confirmed price passes the typo guard
+    finally:
+        await client.delete(f"/api/v1/portfolios/{pid}", headers=_h(token))

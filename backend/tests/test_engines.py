@@ -191,3 +191,18 @@ def test_risk_numbers_and_buy_options():
     opts = buy_options(50000, 46000, 1000, 20e9, 500_000_000)
     assert [o["key"] for o in opts] == ["none", "third", "full"] and opts[0]["max_loss"] == 0 and opts[1]["quantity"] == 300 and opts[2]["quantity"] == 1000
     assert opts[1]["max_loss"] < opts[2]["max_loss"] and opts[2]["risk_pct"] > 0
+
+
+def test_pretrade_price_and_cash_guards():
+    from app.engines.risk import PretradeInput, pretrade_check
+
+    base = dict(symbol="VNM", quantity=5000, price=5600, stop_loss=5000, take_profit=7000, horizon="MID", equity=500e6, position_value=0, sector_value=0, regime="UPTREND",
+                guard_mode="NORMAL", status_flags=[], value_ma20=300e9, gain_from_base_pct=2, ceiling_streak=0, earnings_in_days=None, limits={})
+    r = pretrade_check(PretradeInput(**base, market_price=56000, cash=20e6))
+    items = {it["code"]: it for it in r["items"]}
+    assert items["PRICE"]["level"] == "RED" and "56.000" in items["PRICE"]["note"] and r["result"] == "RED"
+    assert items["CASH"]["level"] == "RED"
+    ok = pretrade_check(PretradeInput(**{**base, "price": 56000, "stop_loss": 52000, "take_profit": 66000, "quantity": 100}, market_price=56000, cash=20e6, uses_margin=False))
+    its = {it["code"]: it for it in ok["items"]}
+    assert its["PRICE"]["level"] == "GREEN" and its["CASH"]["level"] == "GREEN"
+    assert "CASH" not in {it["code"] for it in pretrade_check(PretradeInput(**base, market_price=None, cash=None))["items"]}

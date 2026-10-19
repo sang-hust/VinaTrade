@@ -95,6 +95,8 @@ CHECK_VI = {
     "EVENTS": "Sự kiện trong 5 phiên tới",
     "LIQUIDITY": "Thanh khoản để thoát lệnh",
     "CHASE": "Mua đuổi",
+    "PRICE": "Giá nhập so với thị trường",
+    "CASH": "Tiền mặt cho lệnh",
 }
 
 
@@ -120,6 +122,9 @@ class PretradeInput:
     reliability_pct: float | None = None
     reliability_samples: int | None = None
     chase_limits: tuple[int, int] = (15, 20)
+    market_price: float | None = None  # latest close: a typed price far from it is almost always a typo (5.600 vs 56.000)
+    cash: float | None = None  # available cash; None = unknown
+    uses_margin: bool = False
 
 
 def pretrade_check(i: PretradeInput) -> dict:
@@ -157,6 +162,13 @@ def pretrade_check(i: PretradeInput) -> dict:
     chase = (i.gain_from_base_pct is not None and i.gain_from_base_pct > limit) or ((i.ceiling_streak or 0) >= 2)
     item("CHASE", not chase, f"Cách điểm phá nền {i.gain_from_base_pct:.0f}%" if i.gain_from_base_pct is not None else "—", f"≤ {limit}%")
 
+    if i.market_price:
+        dev = (px / i.market_price - 1) * 100
+        item("PRICE", abs(dev) <= 30, f"{dev:+.0f}% so với giá thị trường", "Trong ±30%", red_if_fail=True,
+             note=f"Giá thị trường {i.market_price:,.0f} đ. Có phải bạn muốn nhập {i.market_price:,.0f} đ?".replace(",", ".") if abs(dev) > 30 else None)
+    if i.cash is not None and not i.uses_margin:
+        item("CASH", order_value <= i.cash + 1, f"cần {order_value:,.0f} đ, có {max(i.cash, 0):,.0f} đ".replace(",", "."), "Không âm tiền mặt", red_if_fail=True,
+             note=None if order_value <= i.cash + 1 else "Ghi 'Nộp tiền' vào danh mục hoặc bật ký quỹ trước khi ghi lệnh.")
     if i.guard_mode == "DEFENSIVE":
         result = "RED"
         items.insert(0, {"code": "GUARD", "name": "Cầu dao giới hạn lỗ", "level": "RED", "value": "Đang ở chế độ phòng thủ",

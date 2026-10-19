@@ -128,7 +128,8 @@ async def portfolio_view(db: AsyncSession, pf: Portfolio) -> dict:
     for v in views:
         sector[v.industry_code or "OTHER"] = sector.get(v.industry_code or "OTHER", 0.0) + v.weight_pct
     open_risk = sum(max(v.price - (v.stop_loss or v.extra.get("sys_stop") or v.price * 0.92), 0) * v.quantity for v in views)
-    return {"portfolio": pf, "positions": views, "market_value": mv, "cash": cash, "nav": nav, "unrealized_pnl": unrealized,
+    cost_basis = sum((v.avg_cost or 0) * v.quantity for v in views)
+    return {"portfolio": pf, "positions": views, "market_value": mv, "cash": cash, "nav": nav, "unrealized_pnl": unrealized, "cost_basis": cost_basis,
             "sector_weights": sector, "open_risk": open_risk, "open_risk_pct": open_risk / nav * 100 if nav else 0.0}
 
 

@@ -183,10 +183,18 @@ Future<void> _recordTrade(BuildContext context, WidgetRef ref, String pfId, {Str
                 return;
               }
               try {
-                final r = asMap(await ref.read(apiProvider).post('/portfolios/$pfId/transactions', data: {
+                final tx = {
                   'side': side, 'symbol': sym.text.trim().isEmpty ? null : sym.text.trim().toUpperCase(), 'quantity': int.tryParse(qty.text.replaceAll('.', '')) ?? 0, 'price': num.tryParse(price.text.replaceAll('.', '')) ?? 0,
                   'amount': num.tryParse(amount.text.replaceAll('.', '')), 'trade_date': date.toIso8601String().substring(0, 10), 'reason': note.text.trim().isEmpty ? null : note.text.trim(),
-                }));
+                };
+                Map<String, dynamic> r;
+                try {
+                  r = asMap(await ref.read(apiProvider).post('/portfolios/$pfId/transactions', data: tx));
+                } on ApiException catch (e) {
+                  if (e.code != 'PRICE_SUSPECT' || !ctx.mounted) rethrow;
+                  if (!await confirmDialog(ctx, title: 'Giá có vẻ nhập sai', message: e.message, confirmLabel: 'Đúng giá đã khớp, vẫn ghi', danger: true)) return;
+                  r = asMap(await ref.read(apiProvider).post('/portfolios/$pfId/transactions', data: {...tx, 'confirm_price': true}));
+                }
                 ref.invalidate(portfolioProvider(pfId));
                 ref.invalidate(portfoliosProvider);
                 if (ctx.mounted) Navigator.pop(ctx);

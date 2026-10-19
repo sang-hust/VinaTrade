@@ -14,11 +14,34 @@ from app.core.vntime import today_vn
 from app.engines.risk import correlated_groups, margin_metrics
 from app.engines.scoring import RATING_VI
 from app.ingestion.icb import ICB_LV2
-from app.models import ActionItem, IndexDaily, Portfolio, PortfolioMargin, Position, RiskGuardEvent, TradeJournal, TradePlan, TradePlanStep, Transaction
+from app.models import (
+    ActionItem,
+    IndexDaily,
+    Portfolio,
+    PortfolioMargin,
+    Position,
+    RiskGuardEvent,
+    StockSnapshot,
+    TradeJournal,
+    TradePlan,
+    TradePlanStep,
+    Transaction,
+)
 from app.schemas.common import Ok
 from app.services.portfolio import nav_history, period_pnl, portfolio_view, recompute_positions
-from app.services.riskguard import _returns_frame, ensure_user_defaults, refresh_action_items, resolve_action
-from app.services.trades import PLAN_TEMPLATES, complete_step, create_plan, record_transaction, set_stop_loss
+from app.services.riskguard import (
+    _returns_frame,
+    ensure_user_defaults,
+    refresh_action_items,
+    resolve_action,
+)
+from app.services.trades import (
+    PLAN_TEMPLATES,
+    complete_step,
+    create_plan,
+    record_transaction,
+    set_stop_loss,
+)
 
 router = APIRouter(tags=["portfolio"])
 
@@ -50,6 +73,7 @@ class TxIn(BaseModel):
     pretrade_check_id: uuid.UUID | None = None
     plan_id: uuid.UUID | None = None
     plan_seq: int | None = None
+    confirm_price: bool = False  # the user confirmed a price far from the market (not a typo)
 
 
 class StopIn(BaseModel):
@@ -100,7 +124,7 @@ def _pf_out(pf: Portfolio, view: dict | None = None) -> dict:
          "fee_pct": clean(pf.fee_pct), "tax_pct": clean(pf.tax_pct), "label": "Tiền ảo" if pf.is_paper else ("ký quỹ" if pf.uses_margin else "thật")}
     if view:
         d.update({"nav": round(view["nav"]), "market_value": round(view["market_value"]), "unrealized_pnl": round(view["unrealized_pnl"]),
-                  "unrealized_pnl_pct": round(view["unrealized_pnl"] / (view["nav"] - view["unrealized_pnl"]) * 100, 2) if view["nav"] - view["unrealized_pnl"] else 0.0,
+                  "unrealized_pnl_pct": round(view["unrealized_pnl"] / view["cost_basis"] * 100, 2) if view.get("cost_basis") else 0.0,
                   "positions_count": len(view["positions"]), "open_risk": round(view["open_risk"]), "open_risk_pct": round(view["open_risk_pct"], 2)})
     return d
 
@@ -182,7 +206,7 @@ async def get_portfolio(pid: uuid.UUID, user: CurrentUser, db: DB):
     return {
         "portfolio": _pf_out(pf, view),
         "kpis": {"nav": round(view["nav"]), "cash": round(view["cash"]), "market_value": round(view["market_value"]), "unrealized_pnl": round(view["unrealized_pnl"]),
-                 "unrealized_pnl_pct": round(view["unrealized_pnl"] / (view["nav"] - view["unrealized_pnl"]) * 100, 2) if view["nav"] - view["unrealized_pnl"] else 0.0,
+                 "unrealized_pnl_pct": round(view["unrealized_pnl"] / view["cost_basis"] * 100, 2) if view.get("cost_basis") else 0.0,
                  "today_pnl": round(today_pnl), "today_pnl_pct": round(today_pnl / view["nav"] * 100, 2) if view["nav"] else 0.0, "vnindex_change_pct": round(idx_chg, 2),
                  "open_risk": round(view["open_risk"]), "open_risk_pct": round(view["open_risk_pct"], 2), "stress": stress,
                  "week_pnl_pct": round(pnl["week_pnl_pct"], 2), "month_pnl_pct": round(pnl["month_pnl_pct"], 2)},
@@ -246,6 +270,22 @@ async def add_transaction(pid: uuid.UUID, body: TxIn, user: CurrentUser, db: DB)
         if recent is None:
             raise bad_request("PRETRADE_REQUIRED", "Mọi lệnh mua đều phải qua Kiểm tra trước khi mua", {"pretrade_required": True})
         body.pretrade_check_id = recent.id
+    # Typo guard: a fill price more than ±30% from the latest close is almost always a missing digit (5.600 vs 56.000)
+    if side in ("BUY", "SELL") and body.symbol and body.price and not body.confirm_price:
+        sn = await db.get(StockSnapshot, body.symbol.upper())
+        if sn and sn.price:
+            dev = (float(body.price) / float(sn.price) - 1) * 100
+            if abs(dev) > 30:
+                guess = float(sn.price)
+                raise bad_request("PRICE_SUSPECT", f"Giá {float(body.price):,.0f} đ lệch {dev:+.0f}% so với giá thị trường {float(sn.price):,.0f} đ của {body.symbol.upper()}. Có phải bạn muốn nhập {guess:,.0f} đ? Nếu đúng là giá đã khớp, xác nhận để ghi.".replace(",", "."),
+                                  {"market_price": float(sn.price), "suggested_price": guess})
+    # Cash guard: a real portfolio without margin cannot go negative
+    if side == "BUY" and not pf.is_paper and not pf.uses_margin:
+        need = float(body.price or 0) * int(body.quantity or 0) + float(body.fee or 0)
+        cash = float(pf.cash or 0)
+        if need > cash + 1:
+            raise bad_request("CASH_INSUFFICIENT", f"Tiền mặt {cash:,.0f} đ không đủ cho lệnh {need:,.0f} đ. Ghi 'Nộp tiền' vào danh mục (hoặc sửa vốn ban đầu), hoặc bật ký quỹ nếu bạn đang vay.".replace(",", "."),
+                              {"cash": cash, "need": need})
     # BR-16 / M12: averaging down on a losing position needs a reason
     if side == "BUY" and body.symbol:
         pos = await db.get(Position, (pf.id, body.symbol.upper()))
@@ -283,7 +323,7 @@ async def delete_transaction(pid: uuid.UUID, tid: uuid.UUID, user: CurrentUser, 
 
 
 @router.post("/portfolios/{pid}/import")
-async def import_transactions(pid: uuid.UUID, user: CurrentUser, db: DB, file: UploadFile = File(...)):
+async def import_transactions(pid: uuid.UUID, user: CurrentUser, db: DB, file: UploadFile = File(...)):  # noqa: B008
     """CSV/XLSX broker statement: columns (vi/en aliases) ngày, mã, mua/bán, khối lượng, giá, phí, thuế."""
     pf = await _pf(db, user, pid)
     raw = await file.read()

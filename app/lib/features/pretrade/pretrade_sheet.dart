@@ -114,11 +114,27 @@ class _PretradeSheetState extends ConsumerState<PretradeSheet> {
     try {
       final api = ref.read(apiProvider);
       final saved = asMap(await api.post('/pretrade-check', data: {..._body(true), 'quantity': quantity}));
-      final r = asMap(await api.post('/portfolios/$pfId/transactions', data: {
+      final tx = {
         'side': 'BUY', 'symbol': widget.symbol, 'quantity': quantity, 'price': num.tryParse(price.text.replaceAll('.', '')), 'stop_loss': num.tryParse(stop.text.replaceAll('.', '')),
         'take_profit': num.tryParse(tp.text.replaceAll('.', '')), 'pretrade_check_id': saved['check_id'], 'reason': reason.text.trim().isEmpty ? null : reason.text.trim(),
         if (widget.planId != null) 'plan_id': widget.planId, if (widget.planSeq != null) 'plan_seq': widget.planSeq,
-      }));
+      };
+      Map<String, dynamic> r;
+      try {
+        r = asMap(await api.post('/portfolios/$pfId/transactions', data: tx));
+      } on ApiException catch (e) {
+        if (e.code != 'PRICE_SUSPECT' || !mounted) rethrow;
+        final ok = await confirmDialog(context, title: 'Giá có vẻ nhập sai', message: e.message, confirmLabel: 'Đúng giá đã khớp, vẫn ghi', danger: true);
+        if (!ok) {
+          final sug = asNum(e.details['suggested_price']);
+          if (sug != null) {
+            price.text = sug.round().toString();
+            _check(save: false);
+          }
+          return;
+        }
+        r = asMap(await api.post('/portfolios/$pfId/transactions', data: {...tx, 'confirm_price': true}));
+      }
       ref.invalidate(getProvider);
       if (!mounted) return;
       setState(() => _done = true);
