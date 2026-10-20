@@ -166,10 +166,7 @@ class _Signals extends ConsumerWidget {
     if (r['stand_aside'] == true) return Tooltip(message: r['gate_reason']?.toString() ?? 'Độ tin cậy dưới 50% ở trạng thái thị trường hiện tại', child: Pill('Đứng ngoài', color: ctx.vn.down, fontSize: 10.5));
     if (p == null) return Text('chưa đủ mẫu', style: TextStyle(color: ctx.vn.faint, fontSize: 11.5));
     final n = asMap(r['risk_numbers']);
-    return Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('đúng ${Fmt.num_(p, decimals: 0)}% (${r['reliability_samples']})', style: TextStyle(color: ctx.vn.muted, fontSize: 12)),
-      if (n['short'] != null) Text(n['short'].toString(), style: TextStyle(color: ctx.vn.faint, fontSize: 11)),
-    ]);
+    return Text('đúng ${Fmt.num_(p, decimals: 0)}% (${r['reliability_samples']})${n['short'] != null ? '\n${n['short']}' : ''}', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: ctx.vn.muted, fontSize: 11.5, height: 1.25));
   }
 }
 

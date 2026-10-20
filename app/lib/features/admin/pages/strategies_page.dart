@@ -85,7 +85,7 @@ class _StrategiesPageState extends ConsumerState<StrategiesPage> {
                   scrollDirection: Axis.horizontal,
                   child: DataTable(
                     headingTextStyle: TextStyle(fontSize: 12.5, color: c.muted, fontWeight: FontWeight.w600),
-                    columnSpacing: 20,
+                    columnSpacing: 20, dataRowMinHeight: 48, dataRowMaxHeight: 76,
                     columns: const [DataColumn(label: Text('Bật')), DataColumn(label: Text('Chiến lược')), DataColumn(label: Text('Loại tín hiệu')), DataColumn(label: Text('Khung')), DataColumn(label: Text('Phiên bản')), DataColumn(label: Text('Số lệnh'), numeric: true), DataColumn(label: Text('Tỷ lệ đúng'), numeric: true), DataColumn(label: Text('LN TB'), numeric: true), DataColumn(label: Text('Sụt giảm tối đa'), numeric: true)],
                     rows: [
                       for (final s in rows)
