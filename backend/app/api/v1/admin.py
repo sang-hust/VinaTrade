@@ -738,6 +738,22 @@ async def strategy_performance(admin: AdminUser, db: DB, months: int = 12, days:
             "monthly": [{"month": r.m, "samples": int(r.n), "win_rate": f(r.win_rate), "avg_return": f(r.avg_return, 2), "excess": f(r.excess, 2)} for r in monthly]}
 
 
+@router.get("/risk-avoided")
+async def risk_avoided(admin: AdminUser, db: DB, days: int = 180):
+    """A10 'Rủi ro tránh được': what happened after RED checks, circuit breakers and stop breaches, system-wide."""
+    from app.services.avoided import avoided_risk, user_drawdown_vs_index
+
+    out = await avoided_risk(db, days)
+    dds = []
+    for (uid,) in (await db.execute(select(User.id).where(User.status == "ACTIVE"))).all():
+        r = await user_drawdown_vs_index(db, uid, 90)
+        if r and r["vnindex_mdd"] is not None:
+            dds.append(r)
+    out["drawdown"] = {"users": len(dds), "median_portfolio_mdd": sorted(d["portfolio_mdd"] for d in dds)[len(dds) // 2] if dds else None,
+                       "vnindex_mdd": dds[0]["vnindex_mdd"] if dds else None, "pct_better_than_index": round(sum(1 for d in dds if d["portfolio_mdd"] > d["vnindex_mdd"]) / len(dds) * 100) if dds else None}
+    return out
+
+
 # ---------------------------------------------------------------- jobs & data (A04)
 async def _quality(db) -> list[dict]:
     last = (await db.execute(text("SELECT max(trade_date) FROM price_daily"))).scalar()

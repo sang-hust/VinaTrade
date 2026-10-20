@@ -1,14 +1,25 @@
 """Weekly AI coach (4.6l): behaviour metrics from the user's own trades, 3 insights with evidence, 1 rule."""
 
+import logging
 from datetime import timedelta
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.vntime import today_vn, week_start
-from app.models import CoachReport, IndexDaily, Portfolio, PretradeCheck, RiskGuardEvent, Transaction, User
+from app.models import (
+    CoachReport,
+    IndexDaily,
+    Portfolio,
+    PretradeCheck,
+    RiskGuardEvent,
+    Transaction,
+    User,
+)
 from app.services import ai
 from app.services.portfolio import nav_history
+
+log = logging.getLogger(__name__)
 
 
 async def trade_metrics(db: AsyncSession, user: User, weeks: int = 12) -> dict:
@@ -91,8 +102,18 @@ def _insights(m: dict) -> tuple[list[dict], str]:
 
 
 async def build_report(db: AsyncSession, user: User) -> CoachReport:
+    from app.services.avoided import avoided_risk
+
     m = await trade_metrics(db, user)
     insights, rule = _insights(m)
+    # evidence that the guards paid off (plan item 6) — shown as the first insight when there is any
+    try:
+        av = await avoided_risk(db, 90, user.id)
+        m["avoided"] = {k: v for k, v in av.items() if k != "red_blocked"} | {"red_blocked": {k: v for k, v in av["red_blocked"].items() if k != "items"}}
+        if av["red_blocked"]["n"] or av["guard"]["n"] or av["stop_sold"]["n"] or av["stop_held"]["n"]:
+            insights = [{"code": "AVOIDED", "text": av["headline"], "impact": 99}, *insights][:3]
+    except Exception as e:  # noqa: BLE001 — never let the evidence block the report
+        log.warning("avoided-risk evidence skipped: %s", e)
     # benchmark since start of year
     pfs = (await db.execute(select(Portfolio).where(Portfolio.user_id == user.id, Portfolio.is_paper.is_(False)))).scalars().all()
     bench = {}

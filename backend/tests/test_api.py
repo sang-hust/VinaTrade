@@ -314,3 +314,12 @@ async def test_breadth_fields_and_manipulation_check(client, token):
     assert {"regime.breadth", "risk.manipulation"} <= {c["key"] for c in r.json()}
     r = await client.post("/api/v1/screener/run", headers=_h(token), json={"preset_code": "HIGH_RISK", "limit": 5})
     assert r.status_code == 200 and all((i.get("risk_total") or 0) >= 50 or (i.get("risk_score") or 0) >= 60 for i in r.json()["items"])
+
+
+async def test_risk_avoided_endpoints(client, token):
+    r = await client.get("/api/v1/admin/risk-avoided?days=180", headers=_h(token))
+    assert r.status_code == 200
+    d = r.json()
+    assert {"red_blocked", "red_overridden", "guard", "stop_sold", "stop_held", "drawdown", "headline"} <= set(d) and "avoided_vnd" in d["red_blocked"]
+    r = await client.get("/api/v1/me/risk-avoided?days=90", headers=_h(token))
+    assert r.status_code == 200 and "headline" in r.json() and "drawdown" in r.json()

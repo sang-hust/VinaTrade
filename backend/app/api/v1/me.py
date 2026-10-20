@@ -142,6 +142,16 @@ async def risk_guard(user: CurrentUser, db: DB):
     return GuardOut.model_validate(g)
 
 
+@router.get("/risk-avoided")
+async def my_risk_avoided(user: CurrentUser, db: DB, days: int = 90):
+    """'Kỷ luật đã cứu được gì' for the portfolio risk tab: RED checks, breaker, stop breaches and drawdown vs VN-Index."""
+    from app.services.avoided import avoided_risk, user_drawdown_vs_index
+
+    out = await avoided_risk(db, days, user.id)
+    out["drawdown"] = await user_drawdown_vs_index(db, user.id, days)
+    return out
+
+
 @router.get("/discipline-events")
 async def discipline_events(user: CurrentUser, db: DB, limit: int = 50):
     from app.models import RiskGuardEvent

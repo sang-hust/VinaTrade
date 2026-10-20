@@ -128,6 +128,8 @@ class _PerformancePageState extends ConsumerState<PerformancePage> {
             const SizedBox(height: 16),
             heat,
             const SizedBox(height: 16),
+            const _AvoidedCard(),
+            const SizedBox(height: 16),
             AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('Bảng nhiệt theo tháng (tín hiệu mua)', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 10),
@@ -154,5 +156,43 @@ class _PerformancePageState extends ConsumerState<PerformancePage> {
         },
       ),
     ]);
+  }
+}
+
+
+/// "Rủi ro tránh được": what happened after RED checks, circuit breakers and stop breaches (system-wide, 180 days).
+class _AvoidedCard extends ConsumerWidget {
+  const _AvoidedCard();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.vn;
+    final d = ref.watch(getMapProvider('/admin/risk-avoided?days=180'));
+    return d.when(
+      loading: () => const SkeletonCard(),
+      error: (e, _) => ErrorBox(e),
+      data: (a) {
+        final b = asMap(a['red_blocked']), ov = asMap(a['red_overridden']), g = asMap(a['guard']), ss = asMap(a['stop_sold']), sh = asMap(a['stop_held']), dd = asMap(a['drawdown']);
+        String ret(dynamic v) => v == null ? '—' : Fmt.pct(asNum(v), decimals: 1);
+        return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Rủi ro tránh được (toàn hệ thống, ${a['days']} ngày)', style: Theme.of(context).textTheme.titleMedium),
+          Text('Điều gì đã xảy ra sau mỗi quyết định kỷ luật — bằng chứng cho triết lý "gợi ý ít rủi ro nhất". Giá đo sau ${a['hold_sessions']} phiên.', style: TextStyle(color: c.muted, fontSize: 12.5)),
+          const SizedBox(height: 12),
+          Wrap(spacing: 12, runSpacing: 12, children: [
+            SizedBox(width: 230, child: KpiTile(label: 'Kiểm tra Đỏ đã chặn', value: '${b['n'] ?? 0} lệnh', note: b['n'] != null && (asInt(b['n']) ?? 0) > 0 ? 'mã sau đó TB ${ret(b['avg_return'])} · ${Fmt.num_(asNum(b['pct_fell']), decimals: 0)}% giảm · tránh ${Fmt.money(asNum(b['avoided_vnd']))}' : 'chưa có', valueColor: c.up)),
+            SizedBox(width: 230, child: KpiTile(label: 'Vượt rào Đỏ', value: '${ov['n'] ?? 0} lần', note: (asInt(ov['n']) ?? 0) > 0 ? 'mã sau đó TB ${ret(ov['avg_return'])}' : 'không ai vượt rào', valueColor: (asInt(ov['n']) ?? 0) > 0 ? c.ref : c.up)),
+            SizedBox(width: 230, child: KpiTile(label: 'Cầu dao bật', value: '${g['n'] ?? 0} lần', note: g['avg_index_during'] != null ? 'VN-Index trong lúc nghỉ TB ${ret(g['avg_index_during'])} · ${Fmt.num_(asNum(g['pct_index_fell']), decimals: 0)}% lần giảm' : 'chưa bật lần nào')),
+            SizedBox(width: 230, child: KpiTile(label: 'Thủng cắt lỗ: bán / giữ', value: '${ss['n'] ?? 0} / ${sh['n'] ?? 0}', note: 'bán đúng hạn: mã sau đó ${ret(ss['avg_return'])} · giữ lại: ${ret(sh['avg_return'])}')),
+            SizedBox(width: 230, child: KpiTile(label: 'Sụt giảm 90 ngày: người dùng vs VN-Index', value: dd['median_portfolio_mdd'] != null ? '${ret(dd['median_portfolio_mdd'])} / ${ret(dd['vnindex_mdd'])}' : '—', note: dd['users'] != null && (asInt(dd['users']) ?? 0) > 0 ? '${dd['users']} danh mục · ${Fmt.num_(asNum(dd['pct_better_than_index']), decimals: 0)}% tốt hơn chỉ số' : 'chưa có danh mục thật')),
+          ]),
+          const SizedBox(height: 10),
+          Text(a['headline']?.toString() ?? '', style: TextStyle(color: c.text, fontSize: 13, height: 1.4)),
+          if (asList(b['items']).isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text('Lệnh bị chặn, mã giảm mạnh nhất sau đó:', style: TextStyle(color: c.muted, fontSize: 12)),
+            for (final it in asList(b['items']).take(5)) Text('${it['symbol']} ${Fmt.date(Fmt.parseDate(it['date']))}: ${ret(it['return_20'])} · ${(it['reasons'] as List? ?? []).join(', ')}', style: TextStyle(fontSize: 12, color: (asNum(it['return_20']) ?? 0) < 0 ? c.up : c.muted)),
+          ],
+        ]));
+      },
+    );
   }
 }

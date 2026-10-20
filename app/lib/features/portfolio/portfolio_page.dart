@@ -425,6 +425,8 @@ class _RiskTab extends ConsumerWidget {
         ]),
       ).stagger(context, 0),
       SizedBox(height: context.gap),
+      const _AvoidedRiskCard().stagger(context, 1),
+      SizedBox(height: context.gap),
       AppCard(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Kịch bản xấu (theo beta từng mã)', style: Theme.of(context).textTheme.titleMedium),
@@ -609,6 +611,32 @@ class _PerfTab extends ConsumerWidget {
           const SizedBox(height: 8),
           TextButton.icon(onPressed: () => showSymbolSearch(context), icon: const Icon(Icons.search, size: 16), label: const Text('Tìm mã để so sánh')),
         ]);
+      },
+    );
+  }
+}
+
+
+/// "Kỷ luật đã cứu được gì": what happened after the user's own RED checks, breaker and stop breaches (90 days).
+class _AvoidedRiskCard extends ConsumerWidget {
+  const _AvoidedRiskCard();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.vn;
+    final d = ref.watch(getMapProvider('/me/risk-avoided?days=90'));
+    return d.when(
+      loading: () => const SkeletonCard(lines: 3),
+      error: (e, _) => const SizedBox.shrink(),
+      data: (a) {
+        final b = asMap(a['red_blocked']), g = asMap(a['guard']), ss = asMap(a['stop_sold']), sh = asMap(a['stop_held']), dd = asMap(a['drawdown']);
+        final any = (asInt(b['n']) ?? 0) + (asInt(g['n']) ?? 0) + (asInt(ss['n']) ?? 0) + (asInt(sh['n']) ?? 0) > 0;
+        return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [Icon(Icons.verified_outlined, color: c.up, size: 20), const SizedBox(width: 8), Text('Kỷ luật đã cứu được gì (${a['days']} ngày)', style: Theme.of(context).textTheme.titleMedium)]),
+          const SizedBox(height: 8),
+          Text(a['headline']?.toString() ?? '', style: TextStyle(fontSize: 13.5, height: 1.45, color: any ? c.text : c.muted)),
+          if (dd.isNotEmpty && dd['portfolio_mdd'] != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Sụt giảm sâu nhất của bạn ${Fmt.pct(asNum(dd['portfolio_mdd']), decimals: 1)} so với VN-Index ${Fmt.pct(asNum(dd['vnindex_mdd']), decimals: 1)} cùng kỳ.', style: TextStyle(fontSize: 13, color: (asNum(dd['portfolio_mdd']) ?? 0) > (asNum(dd['vnindex_mdd']) ?? 0) ? c.upText : c.downText, fontWeight: FontWeight.w600))),
+          Padding(padding: const EdgeInsets.only(top: 6), child: Text('Giá đo sau ${a['hold_sessions']} phiên kể từ mỗi quyết định. Kết quả quá khứ không bảo đảm tương lai.', style: TextStyle(color: c.faint, fontSize: 11.5))),
+        ]));
       },
     );
   }
