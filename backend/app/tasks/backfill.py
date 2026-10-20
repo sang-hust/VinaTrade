@@ -231,7 +231,6 @@ async def recompute_outcomes(db: AsyncSession, replan: bool = True) -> dict:
     reliability tables. With replan, stop / take-profit of BUY signals are re-derived from plan.params where indicators
     exist (from 6/2025). Runs symbol by symbol; progress is logged."""
     from app.engines.simulate import outcomes_for_arrays
-    from app.models import IndicatorDaily
 
     sim = await sim_params(db)
     syms = [s for (s,) in (await db.execute(select(Signal.symbol).distinct())).all()]
@@ -240,9 +239,9 @@ async def recompute_outcomes(db: AsyncSession, replan: bool = True) -> dict:
     for bi in range(0, len(syms), 40):
         batch = syms[bi : bi + 40]
         frames = await _load_prices(db, batch)
-        ind = {(r.symbol, r.trade_date): r for r in (await db.execute(select(IndicatorDaily.symbol, IndicatorDaily.trade_date, IndicatorDaily.value_ma20, IndicatorDaily.atr14, IndicatorDaily.support_1, IndicatorDaily.resistance_1)
-                                                                        .where(IndicatorDaily.symbol.in_(batch)))).all()}
         exch = dict((await db.execute(select(Stock.symbol, Stock.exchange).where(Stock.symbol.in_(batch)))).all())
+        # indicators on the fly (indicators_daily only keeps ~300 sessions): atr / support / resistance / value_ma20 at every date
+        ind_frames = {sym: compute_indicators(df, exch.get(sym, "HOSE"), pivot_tail=len(df)) for sym, df in frames.items() if len(df) >= 60}
         sigs = (await db.execute(select(Signal).where(Signal.symbol.in_(batch)).order_by(Signal.symbol, Signal.trade_date))).scalars().all()
         await db.execute(SignalOutcome.__table__.delete().where(SignalOutcome.signal_id.in_([s.id for s in sigs])))
         rows = []
@@ -253,7 +252,8 @@ async def recompute_outcomes(db: AsyncSession, replan: bool = True) -> dict:
             pos = df.index.searchsorted(pd.Timestamp(s.trade_date))
             if pos >= len(df) or df.index[pos].date() != s.trade_date:
                 continue
-            r = ind.get((s.symbol, s.trade_date))
+            indf = ind_frames.get(s.symbol)
+            r = indf.iloc[pos] if indf is not None and pos < len(indf) else None
             if replan and r is not None and s.signal_type == "BUY" and s.price:
                 # re-derive stop / TP with the current plan.params (the stored levels came from the old rule)
                 pl = trade_plan(float(s.price), r.atr14, r.support_1, r.resistance_1, exch.get(s.symbol, "HOSE"), params=sim["plan"])

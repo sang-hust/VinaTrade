@@ -16,7 +16,7 @@ from sqlalchemy import select
 from app.core.db import session_scope
 from app.engines.scoring import plan_levels
 from app.engines.simulate import simulate_trade, slippage_for
-from app.models import IndicatorDaily, Signal, Stock
+from app.models import Signal, Stock
 from app.tasks.backfill import sim_params
 from app.tasks.eod import _load_prices
 
@@ -24,25 +24,33 @@ GRID = {"atr_mult": [1.5, 2.0, 2.5, 3.0], "stop_floor_pct": [5.0, 7.0, 8.0, 10.0
 
 
 async def load_cases(db, years: int) -> tuple[list[dict], dict[str, pd.DataFrame]]:
+    """Stored BUY signals with the indicator row at the signal date, computed on the fly from prices (indicators_daily
+    only keeps ~300 sessions; the study needs the whole history)."""
+    from app.engines.indicators import compute_indicators
+
     since = date(date.today().year - years, 1, 1)
     sigs = (await db.execute(select(Signal).where(Signal.signal_type == "BUY", Signal.trade_date >= since).order_by(Signal.symbol, Signal.trade_date))).scalars().all()
     syms = sorted({s.symbol for s in sigs})
     ex = dict((await db.execute(select(Stock.symbol, Stock.exchange).where(Stock.symbol.in_(syms)))).all())
-    ind = {(r.symbol, r.trade_date): r for r in (await db.execute(select(IndicatorDaily.symbol, IndicatorDaily.trade_date, IndicatorDaily.atr14, IndicatorDaily.support_1, IndicatorDaily.resistance_1, IndicatorDaily.value_ma20)
-                                                                    .where(IndicatorDaily.symbol.in_(syms), IndicatorDaily.trade_date >= since))).all()}
-    frames = {}
-    for i in range(0, len(syms), 80):
-        frames.update(await _load_prices(db, syms[i : i + 80]))
-    cases = []
+    frames, cases = {}, []
+    by_sym: dict[str, list] = {}
     for s in sigs:
-        r, df = ind.get((s.symbol, s.trade_date)), frames.get(s.symbol)
-        if r is None or df is None:
-            continue
-        pos = df.index.searchsorted(pd.Timestamp(s.trade_date))
-        if pos >= len(df) or df.index[pos].date() != s.trade_date:
-            continue
-        cases.append({"symbol": s.symbol, "t": int(pos), "close": float(s.price), "atr": r.atr14, "support": r.support_1, "resistance": r.resistance_1, "exchange": ex.get(s.symbol, "HOSE"),
-                      "value_ma20": r.value_ma20, "old_stop": s.stop_loss, "old_tp": s.take_profit_1})
+        by_sym.setdefault(s.symbol, []).append(s)
+    for i in range(0, len(syms), 60):
+        batch = syms[i : i + 60]
+        fr = await _load_prices(db, batch)
+        for sym, df in fr.items():
+            if len(df) < 260:
+                continue
+            frames[sym] = df
+            ind = compute_indicators(df, ex.get(sym, "HOSE"), pivot_tail=len(df))
+            for s in by_sym.get(sym, []):
+                pos = df.index.searchsorted(pd.Timestamp(s.trade_date))
+                if pos >= len(df) or df.index[pos].date() != s.trade_date:
+                    continue
+                r = ind.iloc[pos]
+                cases.append({"symbol": sym, "t": int(pos), "close": float(s.price), "atr": r.atr14, "support": r.support_1, "resistance": r.resistance_1, "exchange": ex.get(sym, "HOSE"),
+                              "value_ma20": r.value_ma20, "old_stop": s.stop_loss, "old_tp": s.take_profit_1, "regime": s.regime_at_signal, "strategy": s.strategy_code, "date": s.trade_date})
     return cases, frames
 
 
