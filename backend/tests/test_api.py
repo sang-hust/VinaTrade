@@ -323,3 +323,12 @@ async def test_risk_avoided_endpoints(client, token):
     assert {"red_blocked", "red_overridden", "guard", "stop_sold", "stop_held", "drawdown", "headline"} <= set(d) and "avoided_vnd" in d["red_blocked"]
     r = await client.get("/api/v1/me/risk-avoided?days=90", headers=_h(token))
     assert r.status_code == 200 and "headline" in r.json() and "drawdown" in r.json()
+
+
+async def test_strategy_regime_gates(client, token):
+    r = await client.get("/api/v1/admin/strategies", headers=_h(token))
+    assert r.status_code == 200 and "gate" in r.json() and all("gated_regimes" in s for s in r.json()["items"])
+    r = await client.get("/api/v1/admin/strategies/performance?months=60", headers=_h(token))
+    assert r.status_code == 200
+    r = await client.get("/api/v1/admin/config", headers=_h(token))
+    assert "strategy.regime_gate" in {c["key"] for c in r.json()}

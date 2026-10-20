@@ -23,7 +23,14 @@ from app.engines.indicators import OUTPUT_COLS, compute_indicators, rs_ratings, 
 from app.engines.ratios import compute_ratios
 from app.engines.regime import classify_regime
 from app.engines.risk import beta as calc_beta
-from app.engines.risk import company_risk, nan_to_none, reliability_label, risk_adjusted, total_risk
+from app.engines.risk import (
+    company_risk,
+    nan_to_none,
+    regime_gate,
+    reliability_label,
+    risk_adjusted,
+    total_risk,
+)
 from app.engines.scoring import (
     RATING_VI,
     composite,
@@ -668,7 +675,8 @@ async def step_signals(db: AsyncSession) -> dict:
     params = await get_config(db, "strategy.params")
     risk_th = await get_config(db, "risk.company_thresholds")
     manip_block = float((await get_config(db, "risk.manipulation") or {}).get("block", 60))
-    n_blocked = 0
+    gate_cfg = await get_config(db, "strategy.regime_gate")
+    n_blocked = n_gated = 0
     min_liq = float(await get_config(db, "market.min_liquidity") or 0)
     regime_row = (await db.execute(select(MarketRegime).order_by(desc(MarketRegime.trade_date)).limit(1))).scalar_one_or_none()
     regime = regime_row.regime if regime_row else "UPTREND"
@@ -724,6 +732,11 @@ async def step_signals(db: AsyncSession) -> dict:
                 score = sc.get(f"score_{hz.lower()}")
                 r = rel.get((code, regime, hz))
                 stand_aside, _ = reliability_label(r.win_rate if r else None, r.samples if r else None)
+                gated, gate_reason = regime_gate(st.signal_type, regime, r.samples if r else None, r.avg_return if r else None, gate_cfg)
+                if gated:
+                    stand_aside = True
+                    c["facts"] = {**(c.get("facts") or {}), "gate": gate_reason}
+                    n_gated += 1
                 is_chase = st.signal_type == "BUY" and strat.is_chase(sc.get("gain_from_base_pct"), last.ceiling_streak, hz, params)
                 dedupe = f"{sym}:{code}:{last.trade_date.isoformat()}"
                 exists = await db.scalar(select(Signal.id).where(Signal.dedupe_key == dedupe))
@@ -740,7 +753,7 @@ async def step_signals(db: AsyncSession) -> dict:
                 db.add(sig)
                 n_new += 1
         await db.flush()
-    return {"signals": n_new, "blocked_manipulation": n_blocked, "date": d.isoformat()}
+    return {"signals": n_new, "blocked_manipulation": n_blocked, "stand_aside_regime": n_gated, "date": d.isoformat()}
 
 
 async def step_snapshot(db: AsyncSession) -> dict:

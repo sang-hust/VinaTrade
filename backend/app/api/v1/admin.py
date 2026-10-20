@@ -33,6 +33,7 @@ from app.models import (
     NotificationDelivery,
     PretradeCheck,
     RiskGuardEvent,
+    SignalReliability,
     Stock,
     StockScore,
     Strategy,
@@ -567,12 +568,27 @@ def _param_fields() -> dict[str, dict]:
     return {f["key"]: f for f in CONFIG_META["strategy.params"]["fields"]}
 
 
-def _strategy_out(s: Strategy, live: dict) -> dict:
+def _strategy_out(s: Strategy, live: dict, gates: dict | None = None) -> dict:
     fields = _param_fields()
     keys = STRATEGY_PARAM_KEYS.get(s.code, [])
     return {**row(s, ["code", "name", "signal_type", "horizon", "description", "enabled", "version", "backtest_years", "win_rate", "avg_return", "max_drawdown", "trades", "updated_at", "draft_updated_at"]),
             "params": {k: live.get(k, DEFAULT_PARAMS.get(k)) for k in keys}, "fields": [fields[k] for k in keys if k in fields],
-            "draft_params": s.draft_params, "draft_backtest": s.draft_backtest, "running": f"strategy_backtest:{s.code}" in RUNNING}
+            "draft_params": s.draft_params, "draft_backtest": s.draft_backtest, "running": f"strategy_backtest:{s.code}" in RUNNING,
+            "gated_regimes": (gates or {}).get(s.code, [])}
+
+
+async def _regime_gates(db) -> dict[str, list[dict]]:
+    """code → regimes where the gate stands aside (from signal_reliability, 20 sessions)."""
+    from app.engines.risk import regime_gate
+
+    cfg = await get_config(db, "strategy.regime_gate")
+    types = {s.code: s.signal_type for s in (await db.execute(select(Strategy))).scalars()}
+    out: dict[str, list[dict]] = {}
+    for r in (await db.execute(select(SignalReliability).where(SignalReliability.days == 20))).scalars():
+        gated, reason = regime_gate(types.get(r.strategy_code, "BUY"), r.regime, r.samples, r.avg_return, cfg)
+        if gated:
+            out.setdefault(r.strategy_code, []).append({"regime": r.regime, "horizon": r.horizon, "samples": r.samples, "avg_return": r.avg_return, "reason": reason})
+    return out
 
 
 @router.get("/strategies")
@@ -580,7 +596,8 @@ async def strategies(admin: AdminUser, db: DB):
     live = await get_config(db, "strategy.params")
     rows = (await db.execute(select(Strategy).order_by(Strategy.signal_type, Strategy.code))).scalars().all()
     last_bt = (await db.execute(select(JobRun).where(JobRun.name == "strategy_backtest").order_by(desc(JobRun.id)).limit(1))).scalar_one_or_none()
-    return {"items": [_strategy_out(s, live) for s in rows], "backtest_all_running": "strategy_backtest" in RUNNING,
+    gates = await _regime_gates(db)
+    return {"items": [_strategy_out(s, live, gates) for s in rows], "backtest_all_running": "strategy_backtest" in RUNNING, "gate": await get_config(db, "strategy.regime_gate"),
             "last_backtest": row(last_bt, ["status", "started_at", "summary"]) if last_bt else None}
 
 
@@ -727,8 +744,22 @@ async def strategy_performance(admin: AdminUser, db: DB, months: int = 12, days:
         key = (r.strategy_code, r.horizon)
         strat_rows.setdefault(key, {"strategy": r.strategy_code, "name": names.get(r.strategy_code, r.strategy_code), "signal_type": r.signal_type, "horizon": r.horizon, "cells": {}})
         strat_rows[key]["cells"][r.regime3] = {"samples": int(r.n), "win_rate": round(float(r.win_rate), 1), "avg_return": round(float(r.avg_return), 2), "excess": round(float(r.excess), 2) if r.excess is not None else None}
-    for v in strat_rows.values():
+    from app.engines.risk import regime_gate
+
+    gate_cfg = await get_config(db, "strategy.regime_gate")
+    gate_rows = {(r.strategy_code, r.regime, r.horizon): r for r in (await db.execute(select(SignalReliability).where(SignalReliability.days == 20))).scalars()}
+    regime3 = {"UPTREND": "UP", "PRESSURE": "PRESSURE", "CORRECTION": "DOWN", "DOWNTREND": "DOWN"}
+    for (code, hz), v in strat_rows.items():
         v["suggestion"] = _suggest(v["cells"])
+        gated3 = set()
+        for (c2, reg, h2), r in gate_rows.items():
+            if c2 == code and h2 == hz and regime_gate(v["signal_type"], reg, r.samples, r.avg_return, gate_cfg)[0]:
+                gated3.add(regime3.get(reg, "DOWN"))
+        for k in gated3:
+            if k in v["cells"]:
+                v["cells"][k]["gated"] = True
+        if gated3:
+            v["suggestion"] = "Tự đứng ngoài khi " + ", ".join({"UP": "thị trường tăng", "PRESSURE": "chịu áp lực", "DOWN": "thị trường giảm"}[k] for k in sorted(gated3))
     f = lambda x, d=1: round(float(x), d) if x is not None else None
     return {"months": months, "days": days, "regimes": ["UP", "PRESSURE", "DOWN"], "fee_note": "Mô phỏng sát thực tế: mua giá mở cửa phiên sau, bán sớm nhất T+2, cắt lỗ/chốt lời theo giá mở cửa khi có gap, trừ phí 0,15%×2, thuế 0,1% và trượt giá theo thanh khoản",
             "kpis": {"buy_signals": int(kpi.n or 0), "tp1_rate": f(kpi.tp1), "target_tp1_rate": 55, "avg_return": f(kpi.ar, 2), "excess_vs_index": f(kpi.excess, 2), "vnindex_return": f(kpi.idx, 2)},

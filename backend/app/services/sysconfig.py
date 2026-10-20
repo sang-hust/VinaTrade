@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engines.regime import DEFAULT_BREADTH_PARAMS
-from app.engines.risk import DEFAULT_RISK_PARAMS, DEFAULT_RISK_WEIGHTS
+from app.engines.risk import DEFAULT_REGIME_GATE, DEFAULT_RISK_PARAMS, DEFAULT_RISK_WEIGHTS
 from app.engines.scoring import DEFAULT_PLAN_PARAMS, DEFAULT_WEIGHTS
 from app.engines.strategies import DEFAULT_PARAMS
 from app.ingestion.icb import SECTOR_MACRO_RULES
@@ -14,6 +14,7 @@ DEFAULTS: dict[str, tuple[object, str, str]] = {
     "scoring.weights": (DEFAULT_WEIGHTS, "Trọng số điểm tổng hợp theo khung (kỹ thuật, cơ bản, ngành, nền giá & AI), tổng 100", "scoring"),
     "scoring.thresholds": ({"STRONG_BUY": 80, "BUY": 65, "HOLD": 50, "REDUCE": 35}, "Ngưỡng xếp loại khuyến nghị", "scoring"),
     "strategy.params": (DEFAULT_PARAMS, "Tham số chiến lược tín hiệu", "strategy"),
+    "strategy.regime_gate": (DEFAULT_REGIME_GATE, "Tự 'đứng ngoài' tín hiệu của chiến lược có kỳ vọng âm ở trạng thái thị trường hiện tại", "strategy"),
     "plan.params": (DEFAULT_PLAN_PARAMS, "Đặt cắt lỗ / chốt lời cho kế hoạch giao dịch (nghiên cứu 4b)", "strategy"),
     "base.params": ({"min_length": 25, "max_depth": 0.35, "pivot_wing": 10, "breakout_vol_ratio": 1.5}, "Tham số nhận diện nền giá", "strategy"),
     "regime.equity": ({"UPTREND": 80, "PRESSURE": 60, "CORRECTION": 40, "DOWNTREND": 20}, "Tỷ trọng cổ phiếu tối đa theo trạng thái thị trường (%)", "scoring"),
@@ -59,6 +60,9 @@ CONFIG_META: dict[str, dict] = {
         _f("pullback_rsi_max", "RSI tối đa khi hồi về MA50", ""), _f("pullback_dist_ma50", "Khoảng cách tới MA50 (hồi về)", "%", type_="range"),
         _f("tight_base_tightness", "Biên độ nền chặt tối đa", "%", step=0.1), _f("tight_base_vol", "KL so với TB20 (nền chặt)", "lần", step=0.1),
         _f("chase_short", "Mua đuổi khung ngắn", "%"), _f("chase_mid", "Mua đuổi khung trung", "%")]},
+    "strategy.regime_gate": {"label": "Chọn lọc chiến lược theo trạng thái thị trường", "kind": "form", "fields": [
+        _f("enabled", "Bật (1) / tắt (0)", "", type_="int", min=0, max=1), _f("min_samples", "Số lần tối thiểu để kết luận", "lần", type_="int"),
+        _f("min_expectancy", "Kỳ vọng tối thiểu mỗi lệnh (dưới mức này → đứng ngoài)", "%", step=0.25, help="0 = chỉ gợi ý khi lịch sử không lỗ")]},
     "plan.params": {"label": "Cắt lỗ / chốt lời của kế hoạch giao dịch", "kind": "form", "fields": [
         _f("atr_mult", "Khoảng cách cắt lỗ theo ATR", "× ATR14", step=0.25), _f("stop_floor_pct", "Cắt lỗ tối thiểu", "% giá", step=0.5), _f("stop_cap_pct", "Cắt lỗ tối đa", "% giá", step=0.5),
         _f("use_support", "Nới xuống dưới hỗ trợ gần nhất (1 = có, 0 = không)", "", type_="int", min=0, max=1), _f("tp_rr", "Chốt lời 1 = bội số rủi ro", "× rủi ro", step=0.25, help="Mặc định theo nghiên cứu: cắt lỗ ~5%, chốt lời 1,5R")]},

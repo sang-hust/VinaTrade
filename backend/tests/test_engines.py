@@ -297,3 +297,16 @@ def test_pretrade_manipulation_item():
     assert {it["code"]: it["level"] for it in pretrade_check(PretradeInput(**base, manipulation_score=40))["items"]}["MANIPULATION"] == "YELLOW"
     assert {it["code"]: it["level"] for it in pretrade_check(PretradeInput(**base, manipulation_score=5))["items"]}["MANIPULATION"] == "GREEN"
     assert "MANIPULATION" not in {it["code"] for it in pretrade_check(PretradeInput(**base))["items"]}
+
+
+def test_regime_gate():
+    from app.engines.risk import regime_gate
+
+    assert regime_gate("BUY", "PRESSURE", 300, -1.8)[0] is True
+    assert "chịu áp lực" in regime_gate("BUY", "PRESSURE", 300, -1.8)[1]
+    assert regime_gate("BUY", "UPTREND", 300, 0.4) == (False, None)
+    assert regime_gate("BUY", "PRESSURE", 20, -5.0) == (False, None)  # not enough samples
+    assert regime_gate("SELL", "UPTREND", 464, 0.87)[0] is True  # price rose after the sell signal → wrong
+    assert regime_gate("SELL", "DOWNTREND", 1541, 3.52)[0] is True and regime_gate("SELL", "CORRECTION", 431, -2.4)[0] is False
+    assert regime_gate("BUY", "PRESSURE", 300, -1.8, {"enabled": 0}) == (False, None)
+    assert regime_gate("BUY", "UPTREND", 300, -0.3, {"min_expectancy": -0.5}) == (False, None)

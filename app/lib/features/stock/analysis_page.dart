@@ -200,6 +200,7 @@ class _RecommendationCard extends StatelessWidget {
           if (rel['stand_aside'] == true) Pill('Đứng ngoài', color: c.down),
         ]),
         if (rel.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Độ tin cậy: ${rel['text']}', style: TextStyle(color: c.muted, fontSize: 12.5))),
+        if (rel['gate_reason'] != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(rel['gate_reason'].toString(), style: TextStyle(color: c.downText, fontSize: 12.5, fontWeight: FontWeight.w600))),
         if (asMap(rel['risk_numbers'])['text'] != null)
           Container(
             margin: const EdgeInsets.only(top: 8), padding: const EdgeInsets.all(10),

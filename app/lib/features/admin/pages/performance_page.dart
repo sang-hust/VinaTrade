@@ -64,9 +64,9 @@ class _PerformancePageState extends ConsumerState<PerformancePage> {
                           for (final r in regimes)
                             DataCell(Builder(builder: (_) {
                               final x = asMap(asMap(e['cells'])[r]);
-                              return HeatCell(winRate: asNum(x['win_rate']), samples: asInt(x['samples']) ?? 0);
+                              return HeatCell(winRate: asNum(x['win_rate']), samples: asInt(x['samples']) ?? 0, suffix: x['gated'] == true ? ' · tự tắt' : null);
                             })),
-                          DataCell(Text(e['suggestion'].toString(), style: TextStyle(fontSize: 12.5, color: switch (e['suggestion'].toString()) { 'Hiệu quả ở mọi trạng thái' => c.up, 'Giữ nguyên' => c.up, 'Tắt khi thị trường giảm' => c.down, _ => c.ref }))),
+                          DataCell(Text(e['suggestion'].toString(), style: TextStyle(fontSize: 12.5, color: switch (e['suggestion'].toString()) { 'Hiệu quả ở mọi trạng thái' => c.up, 'Giữ nguyên' => c.up, 'Tắt khi thị trường giảm' => c.down, _ => e['suggestion'].toString().startsWith('Tự đứng ngoài') ? c.down : c.ref }))),
                         ]),
                     ],
                   ),

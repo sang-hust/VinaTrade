@@ -163,7 +163,7 @@ class _Signals extends ConsumerWidget {
   static Widget _rating(BuildContext ctx, Map<String, dynamic> r) => Align(alignment: Alignment.centerLeft, child: RatingChip(r['rating']?.toString()));
   static Widget _rel(BuildContext ctx, Map<String, dynamic> r) {
     final p = asNum(r['reliability_pct']);
-    if (r['stand_aside'] == true) return Pill('Đứng ngoài', color: ctx.vn.down, fontSize: 10.5);
+    if (r['stand_aside'] == true) return Tooltip(message: r['gate_reason']?.toString() ?? 'Độ tin cậy dưới 50% ở trạng thái thị trường hiện tại', child: Pill('Đứng ngoài', color: ctx.vn.down, fontSize: 10.5));
     if (p == null) return Text('chưa đủ mẫu', style: TextStyle(color: ctx.vn.faint, fontSize: 11.5));
     final n = asMap(r['risk_numbers']);
     return Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [

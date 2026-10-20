@@ -536,3 +536,22 @@ def drawdown_cap(drawdown_pct: float | None, steps: dict | None) -> tuple[float 
     if drawdown_pct >= float(st["dd1"]):
         return float(st["cap1"]), f"Danh mục giảm {drawdown_pct:.1f}% từ đỉnh (bậc 1, từ {float(st['dd1']):.0f}%): giữ tối đa {float(st['cap1']):.0f}% cổ phiếu."
     return None, None
+
+
+# ---------------------------------------------------------------- regime gate (plan step: strategy × market-state selection)
+DEFAULT_REGIME_GATE = {"enabled": 1, "min_samples": 50, "min_expectancy": 0.0}
+_REGIME_VI = {"UPTREND": "tăng", "PRESSURE": "chịu áp lực", "CORRECTION": "điều chỉnh", "DOWNTREND": "giảm"}
+
+
+def regime_gate(signal_type: str, regime: str, samples: int | None, avg_return: float | None, params: dict | None = None) -> tuple[bool, str | None]:
+    """True when the strategy has lost money in this market state over enough signals: BUY needs expectancy ≥ min;
+    SELL / TAKE_PROFIT needs the price to have fallen (avg_return ≤ −min). Such signals are published as 'đứng ngoài'."""
+    p = {**DEFAULT_REGIME_GATE, **(params or {})}
+    if not p.get("enabled") or samples is None or avg_return is None or samples < int(p["min_samples"]):
+        return False, None
+    lim = float(p["min_expectancy"])
+    bad = avg_return < lim if signal_type not in ("SELL", "TAKE_PROFIT") else avg_return > -lim
+    if not bad:
+        return False, None
+    what = "kỳ vọng" if signal_type not in ("SELL", "TAKE_PROFIT") else "giá sau đó"
+    return True, f"Chiến lược này {('lỗ' if signal_type not in ('SELL', 'TAKE_PROFIT') else 'sai')} khi thị trường {_REGIME_VI.get(regime, regime)}: {what} {avg_return:+.1f}%/lệnh trên {samples} lần. Hệ thống không gợi ý mua, chỉ ghi nhận."

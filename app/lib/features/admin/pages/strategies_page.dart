@@ -103,7 +103,11 @@ class _StrategiesPageState extends ConsumerState<StrategiesPage> {
                                 if (context.mounted) showToast(context, e.message, error: true);
                               }
                             })),
-                            DataCell(Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [Text(s['name'].toString(), style: const TextStyle(fontWeight: FontWeight.w600)), if (s['draft_params'] != null) ...[const SizedBox(width: 6), Pill('Nháp v${(asInt(s['version']) ?? 1) + 1}', color: c.ref, fontSize: 10)]]), Text(s['code'].toString(), style: TextStyle(fontSize: 11, color: c.faint, fontFamily: 'monospace'))])),
+                            DataCell(Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Row(children: [Text(s['name'].toString(), style: const TextStyle(fontWeight: FontWeight.w600)), if (s['draft_params'] != null) ...[const SizedBox(width: 6), Pill('Nháp v${(asInt(s['version']) ?? 1) + 1}', color: c.ref, fontSize: 10)]]),
+                              Text(s['code'].toString(), style: TextStyle(fontSize: 11, color: c.faint, fontFamily: 'monospace')),
+                              if (asList(s['gated_regimes']).isNotEmpty) Text('Tự đứng ngoài khi ${asList(s['gated_regimes']).map((g) => '${regimeVi[g['regime']] ?? g['regime']} (${Fmt.signed(asNum(g['avg_return']), decimals: 1)}%, ${g['samples']} lần)').join(', ')}', style: TextStyle(fontSize: 11, color: c.down), maxLines: 2, overflow: TextOverflow.ellipsis),
+                            ])),
                             DataCell(cell(signalTypeVi[s['signal_type']] ?? s['signal_type'].toString(), color: {'BUY': c.up, 'SELL': c.down, 'TAKE_PROFIT': c.ref}[s['signal_type']])),
                             DataCell(cell(horizonVi[s['horizon']] ?? '')),
                             DataCell(cell('v${s['version']}')),
@@ -116,7 +120,7 @@ class _StrategiesPageState extends ConsumerState<StrategiesPage> {
                     ],
                   ),
                 ),
-                Padding(padding: const EdgeInsets.fromLTRB(16, 6, 16, 12), child: Text('* Với tín hiệu bán/chốt lời: tỷ lệ giá giảm trong 20 phiên sau tín hiệu. LN TB: lợi nhuận trung bình mỗi lệnh sau phí. Bấm một dòng để sửa tham số.', style: TextStyle(color: c.faint, fontSize: 11.5))),
+                Padding(padding: const EdgeInsets.fromLTRB(16, 6, 16, 12), child: Text('* Với tín hiệu bán/chốt lời: tỷ lệ giá giảm trong 20 phiên sau tín hiệu. LN TB: lợi nhuận trung bình mỗi lệnh sau phí. "Tự đứng ngoài": chiến lược lỗ ở trạng thái thị trường đó (≥ ${asMap(d['gate'])['min_samples'] ?? 50} lần) nên tín hiệu chỉ được ghi nhận, không gợi ý. Bấm một dòng để sửa tham số.', style: TextStyle(color: c.faint, fontSize: 11.5))),
               ]),
             ),
             const SizedBox(height: 16),
